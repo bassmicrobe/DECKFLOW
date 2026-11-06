@@ -52,7 +52,7 @@ const mapping = new MappingManager({actions,onAction:(id,value,phase)=>{if(phase
 
 function renderDecks() {
   $('#decks').innerHTML = ['a','b'].map(id=>`<article class="deck" data-deck="${id}" aria-label="デッキ ${id.toUpperCase()}">
-    <div class="deck-top"><span class="deck-letter">${id.toUpperCase()}</span><div class="deck-meta"><div class="deck-title" id="${id}-title">曲を読み込んでください</div><div class="deck-artist" id="${id}-artist">YOUR NEXT TRACK</div></div><div class="deck-bpm"><span id="${id}-bpm">—.—</span><small>BPM</small></div></div>
+    <div class="deck-top"><span class="deck-letter">${id.toUpperCase()}</span><div class="deck-meta"><div class="deck-title" id="${id}-title">曲を読み込んでください</div><div class="deck-artist" id="${id}-artist">ライブラリから曲を選択</div></div><div class="deck-bpm"><span id="${id}-bpm">—.—</span><small>BPM</small></div></div>
     <div class="deck-wave"><canvas id="${id}-wave" aria-label="デッキ ${id.toUpperCase()} 波形。タップして再生位置を変更" role="slider" tabindex="0" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></canvas><span class="wave-empty" id="${id}-wave-empty">ライブラリの ${id.toUpperCase()} をタップ</span></div>
     <div class="deck-timeline"><span class="current-time" id="${id}-time">0:00</span><span id="${id}-remaining">− 0:00</span></div>
     <div class="platter-section"><button class="platter" id="${id}-platter" aria-label="デッキ ${id.toUpperCase()} プラッター。ドラッグでスクラッチ、矢印キーで前後へ移動" title="指で前後に回すとスクラッチ"><span class="record"><span class="record-grooves"></span><span class="record-label"><b>${id.toUpperCase()}</b><small>DECKFLOW</small><i></i></span><span class="record-marker"></span></span><span class="platter-rim"></span></button><div class="platter-info"><span class="eyebrow">TOUCH VINYL</span><span class="platter-status" id="${id}-scratch-state">HOLD + DRAG</span><button class="keylock-button" id="${id}-keylock" aria-pressed="false">KEY LOCK</button><span class="scratch-tip">前後に回してスクラッチ</span></div></div>
@@ -155,7 +155,7 @@ function updateDecks(){
   for(const id of ['a','b']){
     const track=trackFor(id),state=engine.getState(id);
     $(`#${id}-title`).textContent=track?.title||'曲を読み込んでください';
-    $(`#${id}-artist`).textContent=track?.artist||'YOUR NEXT TRACK';
+    $(`#${id}-artist`).textContent=track?.artist||'ライブラリから曲を選択';
     $(`#${id}-bpm`).textContent=track?.bpm?(tempoAt(track,state.position).bpm*state.rate).toFixed(2):'—.—';
     const play=$(`#${id}-play`);play.classList.toggle('is-playing',state.playing);play.textContent=state.playing?'Ⅱ':'▶';play.setAttribute('aria-pressed',String(state.playing));play.setAttribute('aria-label',`デッキ ${id.toUpperCase()} ${state.playing?'一時停止':'再生'}`);
     const loop=$(`#${id}-loop`);loop.classList.toggle('active',!!state.loop);loop.setAttribute('aria-pressed',String(!!state.loop));
@@ -172,15 +172,15 @@ function drawWave(id,state=engine.getState(id)){
   const canvas=$(`#${id}-wave`);const rect=canvas.getBoundingClientRect();if(!rect.width)return;
   const ratio=Math.min(devicePixelRatio||1,2);const w=Math.round(rect.width*ratio),h=Math.round(rect.height*ratio);
   if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;}
-  const ctx=canvas.getContext('2d');ctx.clearRect(0,0,w,h);const track=trackFor(id);const peaks=track?.peaks||[];const color=id==='a'?'#edaa73':'#7bc9bb';
-  ctx.strokeStyle='#273135';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(0,h/2);ctx.lineTo(w,h/2);ctx.stroke();
+  const ctx=canvas.getContext('2d');ctx.clearRect(0,0,w,h);const track=trackFor(id);const peaks=track?.peaks||[];const color=id==='a'?'#ef535b':'#c5c5c5';
+  ctx.strokeStyle='#2b2b2b';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(0,h/2);ctx.lineTo(w,h/2);ctx.stroke();
   if(!track)return;
-  if(track.bpm){const total=state.duration||track.duration;ctx.strokeStyle='#273135';ctx.lineWidth=ratio;for(const t of barPositions(track,total)){const x=t/total*w;ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke();}}
+  if(track.bpm){const total=state.duration||track.duration;ctx.strokeStyle='#2b2b2b';ctx.lineWidth=ratio;for(const t of barPositions(track,total)){const x=t/total*w;ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke();}}
   const progress=state.duration?state.position/state.duration:0;const stride=Math.max(1,Math.ceil(peaks.length/(rect.width/3)));
-  for(let i=0;i<peaks.length;i+=stride){const x=i/peaks.length*w;const v=Math.max(...peaks.slice(i,i+stride));ctx.fillStyle=x<w*progress?color:(id==='a'?'#8d664c':'#466f69');const height=Math.max(2,(v||0)*h*.82);ctx.fillRect(x,(h-height)/2,Math.max(1,w/peaks.length*stride-1.5*ratio),height);}
-  if(state.loop){ctx.fillStyle='#b6e9c020';ctx.fillRect(state.loop.start/state.duration*w,0,(state.loop.end-state.loop.start)/state.duration*w,h);}
+  for(let i=0;i<peaks.length;i+=stride){const x=i/peaks.length*w;const v=Math.max(...peaks.slice(i,i+stride));ctx.fillStyle=x<w*progress?color:(id==='a'?'#824047':'#626262');const height=Math.max(2,(v||0)*h*.82);ctx.fillRect(x,(h-height)/2,Math.max(1,w/peaks.length*stride-1.5*ratio),height);}
+  if(state.loop){ctx.fillStyle='#ffffff14';ctx.fillRect(state.loop.start/state.duration*w,0,(state.loop.end-state.loop.start)/state.duration*w,h);}
   for(let i=0;i<8;i++){const cue=track.hotcues?.[i];if(cue==null)continue;const x=cue/state.duration*w;ctx.fillStyle=color;ctx.fillRect(x,0,ratio*1.5,h);ctx.font=`${9*ratio}px monospace`;ctx.fillText(String(i+1),x+4*ratio,12*ratio);}
-  ctx.fillStyle='#f5f5ed';ctx.fillRect(clamp(progress,0,1)*w,0,Math.max(2,ratio),h);
+  ctx.fillStyle='#f2f2f2';ctx.fillRect(clamp(progress,0,1)*w,0,Math.max(2,ratio),h);
 }
 
 let lastFrame=0,lastUI=0,lastPreviewUI=0;
@@ -210,7 +210,7 @@ function renderLibrary(){
   $('#source-filter').hidden=!selectedSource;$('#source-filter').innerHTML=selectedSource?`<span>${escapeHTML(selectedSource.label)} · 保存済みライブラリ</span><button class="text-button" data-source-all>すべての曲へ</button>`:'';
   $('#track-list').innerHTML=filtered.slice(libraryPage*PAGE_SIZE,(libraryPage+1)*PAGE_SIZE).map((t,index)=>`<tr><td class="track-number">${String(libraryPage*PAGE_SIZE+index+1).padStart(2,'0')}</td><td><div class="track-identity"><button class="preview-track-button" data-preview="${escapeHTML(t.id)}" aria-label="${escapeHTML(t.title)} を試聴" aria-pressed="false" ${t.audioMissing?'disabled':''}>▶</button><div class="track-copy"><div class="track-title" title="${escapeHTML(t.filename)}">${escapeHTML(t.title)}</div><div class="track-artist">${escapeHTML(t.artist||'アーティスト未設定')}${t.rekordbox?' · rekordbox':''}</div></div></div></td><td class="wave-cell"><div class="mini-wave" aria-hidden="true">${Array.from({length:55},(_,i)=>`<i style="height:${Math.max(3,(t.peaks?.[Math.floor(i*(t.peaks?.length||0)/55)]||0)*100)}%"></i>`).join('')}</div></td><td class="track-bpm" title="${t.rekordbox?'rekordboxの平均BPM':t.confidence<.35?'解析結果は推定です。曲の情報で修正できます。':'BPM'}">${t.bpm?t.bpm.toFixed(2):'—'}</td><td class="track-duration">${time(t.duration)}</td><td><div class="track-actions">${t.audioMissing?`<button class="link-audio-button" data-link-audio="${escapeHTML(t.id)}">音源を選択</button>`:`<button class="load-button ${decks.a.trackId===t.id?'is-loaded':''}" data-load="a:${escapeHTML(t.id)}" aria-label="${escapeHTML(t.title)} をデッキ A へ">A</button><button class="load-button b ${decks.b.trackId===t.id?'is-loaded':''}" data-load="b:${escapeHTML(t.id)}" aria-label="${escapeHTML(t.title)} をデッキ B へ">B</button>`}</div></td><td><button class="icon-button more-button" data-edit="${escapeHTML(t.id)}" aria-label="${escapeHTML(t.title)} の情報を編集">⋯</button></td></tr>`).join('');
   $('#empty-library').hidden=tracks.length>0;
-  if(!filtered.length&&tracks.length)$('#track-list').innerHTML='<tr><td colspan="7" style="text-align:center;color:#959d9e;padding:32px">条件に合う曲はありません。</td></tr>';
+  if(!filtered.length&&tracks.length)$('#track-list').innerHTML='<tr><td colspan="7" style="text-align:center;color:#a0a0a0;padding:32px">条件に合う曲はありません。</td></tr>';
   updatePreview();
 }
 
