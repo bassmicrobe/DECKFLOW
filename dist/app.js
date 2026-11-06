@@ -4,6 +4,7 @@ import {openLibrary} from './library-store.js';
 import {validateUsbLibrary} from './usb-export.js';
 import {createTrackQueue} from './track-updates.js';
 import {installFileDrop,isAudioFile} from './file-drop.js';
+import {PreviewPlayer} from './preview-player.js';
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -35,6 +36,8 @@ let view = 'library';
 const trackQueue=createTrackQueue();
 const decks = {a:{trackId:null,pendingTrackId:null,loopBeats:4,loadNonce:0,angle:0},b:{trackId:null,pendingTrackId:null,loopBeats:4,loadNonce:0,angle:0}};
 const engine = new AudioEngine({onEnded:()=>updateDecks(),onStatus:status=>{if(status.message)toast(status.message);updateDecks();}});
+let pendingDeckPlayback=0;
+const preview = new PreviewPlayer({getAudio:id=>library?.getAudio(id),onChange:()=>updatePreview()});
 const mapping = new MappingManager({actions,onAction:(id,value,phase)=>{if(phase !== 'release') dispatch(id,value).catch(report);},onChange:()=>renderMappings(),onStatus:status=>{renderMIDIStatus(status);}});
 
 function renderDecks() {
@@ -57,7 +60,7 @@ async function dispatch(id,value=1) {
   const [deck,name]=id.split('.');
   const track=trackFor(deck);
   if(!track){toast('先にライブラリの曲をデッキへ読み込んでください。');return;}
-  if(name==='play')await engine.toggle(deck);
+  if(name==='play')await startDeckPlayback(()=>engine.toggle(deck));
   if(name==='cue')engine.jumpCue(deck);
   if(name.startsWith('hotcue'))await hotCue(deck,Number(name.slice(6))-1);
   if(name==='loop')toggleLoop(deck);
@@ -99,7 +102,7 @@ async function hotCue(deck,index,clear=false){
     const current=tracks.find(t=>t.id===track.id);if(!current)throw new Error('この曲はライブラリから削除されています。');
     const updated={...current,hotcues:[...(current.hotcues||[null,null,null,null])]};
     if(clear||current.hotcues?.[index]==null){updated.hotcues[index]=clear?null:pos;await library.putTrack(updated);tracks=tracks.map(t=>t.id===updated.id?updated:t);toast(clear?`HOT CUE ${index+1} を解除しました。`:`HOT CUE ${index+1} を ${time(pos)} に保存しました。`);}
-    else if(decks[deck].trackId===track.id){engine.clearLoop(deck);engine.seek(deck,current.hotcues[index]);await engine.play(deck);}
+    else if(decks[deck].trackId===track.id){engine.clearLoop(deck);engine.seek(deck,current.hotcues[index]);await startDeckPlayback(()=>engine.play(deck));}
   });
   updateDecks();
 }
@@ -124,9 +127,9 @@ function syncDeck(deck){
 function bindPlatter(id){
   const el=$(`#${id}-platter`);let gesture=null;
   const angle=event=>{const r=el.getBoundingClientRect();return Math.atan2(event.clientY-r.top-r.height/2,event.clientX-r.left-r.width/2);};
-  const end=()=>{if(!gesture)return;gesture=null;Promise.resolve(engine.endScratch?.(id)).then(()=>updateDecks()).catch(report);updateDecks();};
+  const end=()=>{if(!gesture)return;gesture=null;startDeckPlayback(()=>engine.endScratch?.(id)).then(()=>updateDecks()).catch(report);updateDecks();};
   el.addEventListener('pointerdown',event=>{if(event.button!==0||gesture||!trackFor(id))return;event.preventDefault();el.setPointerCapture(event.pointerId);const state=engine.getState(id);const active={pointerId:event.pointerId,angle:angle(event),position:state.position,rotation:decks[id].angle,ready:false};gesture=active;
-    Promise.resolve(engine.beginScratch?.(id)).then(()=>{if(gesture!==active)return;active.ready=true;engine.scratchTo?.(id,active.position);updateDecks();}).catch(error=>{if(gesture===active)gesture=null;report(error);});});
+    startDeckPlayback(()=>engine.beginScratch?.(id)).then(()=>{if(gesture!==active)return;active.ready=true;engine.scratchTo?.(id,active.position);updateDecks();}).catch(error=>{if(gesture===active)gesture=null;report(error);});});
   el.addEventListener('pointermove',event=>{if(!gesture||gesture.pointerId!==event.pointerId)return;event.preventDefault();const next=angle(event);let delta=next-gesture.angle;if(delta>Math.PI)delta-=2*Math.PI;if(delta< -Math.PI)delta+=2*Math.PI;gesture.angle=next;gesture.position=clamp(gesture.position+delta/(2*Math.PI)*1.8,0,engine.getState(id).duration);gesture.rotation+=delta*180/Math.PI;decks[id].angle=gesture.rotation;el.querySelector('.record').style.transform=`rotate(${gesture.rotation}deg)`;if(gesture.ready)engine.scratchTo?.(id,gesture.position);});
   for(const name of ['pointerup','pointercancel','lostpointercapture'])el.addEventListener(name,end);
   el.addEventListener('keydown',event=>{if(!['ArrowLeft','ArrowRight'].includes(event.code)||!trackFor(id))return;event.preventDefault();engine.clearLoop(id);engine.seek(id,engine.getState(id).position+(event.code==='ArrowLeft'?-.1:.1));});
@@ -170,17 +173,18 @@ function drawWave(id,state=engine.getState(id)){
   ctx.fillStyle='#f5f5ed';ctx.fillRect(clamp(progress,0,1)*w,0,Math.max(2,ratio),h);
 }
 
-let lastFrame=0,lastUI=0;
+let lastFrame=0,lastUI=0,lastPreviewUI=0;
 function animate(now){
   const dt=lastFrame?Math.min((now-lastFrame)/1000,.1):0;lastFrame=now;
   if(view==='play'&&!document.hidden){for(const id of ['a','b']){const state=engine.getState(id);if(state.playing&&!state.scratching){decks[id].angle=(decks[id].angle+dt*200*state.rate)%360;$(`#${id}-platter .record`).style.transform=`rotate(${decks[id].angle}deg)`;}
     if(now-lastUI>60){$(`#${id}-time`).textContent=time(state.position);$(`#${id}-remaining`).textContent=`− ${time(state.duration-state.position)}`;$(`#${id}-wave`).setAttribute('aria-valuenow',String(Math.round(state.duration?state.position/state.duration*100:0)));drawWave(id,state);}}
     if(now-lastUI>60){lastUI=now;const level=engine.getLevels?.();$('#master-meter').style.height=`${Math.min(1,(level?.master||0)*2)*100}%`;$('#audio-status').textContent=engine.context?`${engine.context.sampleRate/1000} kHz / ${engine.context.state==='running'?'AUDIO ON':'待機中'}`:'音声待機中';}}
+  if(view==='library'&&!document.hidden&&now-lastPreviewUI>120){lastPreviewUI=now;updatePreviewProgress();}
   requestAnimationFrame(animate);
 }
 
-function setView(next){view=next;$('#play-view').classList.toggle('active',next==='play');$('#mapping-view').classList.toggle('active',next==='mapping');$('#library-section').hidden=next==='mapping';$('#library-intro').hidden=next!=='library';
-  $$('.workspace-tabs .tab').forEach(button=>{const active=button.dataset.view===next;button.classList.toggle('active',active);if(active)button.setAttribute('aria-current','page');else button.removeAttribute('aria-current');});if(next==='play')updateDecks();if(next==='mapping')renderMappings();}
+function setView(next){if(next!=='library')preview.stop();view=next;$('#play-view').classList.toggle('active',next==='play');$('#mapping-view').classList.toggle('active',next==='mapping');$('#library-section').hidden=next==='mapping';$('#library-intro').hidden=next!=='library';
+  $$('.workspace-tabs .tab').forEach(button=>{const active=button.dataset.view===next;button.classList.toggle('active',active);if(active)button.setAttribute('aria-current','page');else button.removeAttribute('aria-current');});if(next==='play')updateDecks();if(next==='mapping')renderMappings();updatePreview();}
 
 function renderLibrary(){
   $('#track-count').textContent=`${tracks.length} TRACK${tracks.length===1?'':'S'}`;
@@ -188,9 +192,69 @@ function renderLibrary(){
   const query=$('#search').value.trim().toLocaleLowerCase();let filtered=tracks.filter(t=>(`${t.title} ${t.artist}`).toLocaleLowerCase().includes(query));
   const playlist=playlists.find(p=>p.id===activePlaylist);if(playlist)filtered=filtered.filter(t=>playlist.trackIds.includes(t.id));
   const sort=$('#sort').value;filtered.sort(sort==='bpm'?(a,b)=>(a.bpm||999)-(b.bpm||999):sort==='title'?(a,b)=>a.title.localeCompare(b.title,'ja'):playlist?(a,b)=>playlist.trackIds.indexOf(a.id)-playlist.trackIds.indexOf(b.id):(a,b)=>a.addedAt-b.addedAt);
-  $('#track-list').innerHTML=filtered.map((t,index)=>`<tr><td class="track-number">${String(index+1).padStart(2,'0')}</td><td><div class="track-title" title="${escapeHTML(t.filename)}">${escapeHTML(t.title)}</div><div class="track-artist">${escapeHTML(t.artist||'アーティスト未設定')}</div></td><td class="wave-cell"><div class="mini-wave" aria-hidden="true">${Array.from({length:55},(_,i)=>`<i style="height:${Math.max(3,(t.peaks?.[Math.floor(i*(t.peaks?.length||0)/55)]||0)*100)}%"></i>`).join('')}</div></td><td class="track-bpm" title="${t.confidence<.35?'解析結果は推定です。曲の情報で修正できます。':'BPM'}">${t.bpm?t.bpm.toFixed(2):'—'}</td><td class="track-duration">${time(t.duration)}</td><td><div class="track-actions"><button class="load-button ${decks.a.trackId===t.id?'is-loaded':''}" data-load="a:${escapeHTML(t.id)}" aria-label="${escapeHTML(t.title)} をデッキ A へ">A</button><button class="load-button b ${decks.b.trackId===t.id?'is-loaded':''}" data-load="b:${escapeHTML(t.id)}" aria-label="${escapeHTML(t.title)} をデッキ B へ">B</button></div></td><td><button class="icon-button more-button" data-edit="${escapeHTML(t.id)}" aria-label="${escapeHTML(t.title)} の情報を編集">⋯</button></td></tr>`).join('');
+  $('#track-list').innerHTML=filtered.map((t,index)=>`<tr><td class="track-number">${String(index+1).padStart(2,'0')}</td><td><div class="track-identity"><button class="preview-track-button" data-preview="${escapeHTML(t.id)}" aria-label="${escapeHTML(t.title)} を試聴" aria-pressed="false">▶</button><div class="track-copy"><div class="track-title" title="${escapeHTML(t.filename)}">${escapeHTML(t.title)}</div><div class="track-artist">${escapeHTML(t.artist||'アーティスト未設定')}</div></div></div></td><td class="wave-cell"><div class="mini-wave" aria-hidden="true">${Array.from({length:55},(_,i)=>`<i style="height:${Math.max(3,(t.peaks?.[Math.floor(i*(t.peaks?.length||0)/55)]||0)*100)}%"></i>`).join('')}</div></td><td class="track-bpm" title="${t.confidence<.35?'解析結果は推定です。曲の情報で修正できます。':'BPM'}">${t.bpm?t.bpm.toFixed(2):'—'}</td><td class="track-duration">${time(t.duration)}</td><td><div class="track-actions"><button class="load-button ${decks.a.trackId===t.id?'is-loaded':''}" data-load="a:${escapeHTML(t.id)}" aria-label="${escapeHTML(t.title)} をデッキ A へ">A</button><button class="load-button b ${decks.b.trackId===t.id?'is-loaded':''}" data-load="b:${escapeHTML(t.id)}" aria-label="${escapeHTML(t.title)} をデッキ B へ">B</button></div></td><td><button class="icon-button more-button" data-edit="${escapeHTML(t.id)}" aria-label="${escapeHTML(t.title)} の情報を編集">⋯</button></td></tr>`).join('');
   $('#empty-library').hidden=tracks.length>0;
   if(!filtered.length&&tracks.length)$('#track-list').innerHTML='<tr><td colspan="7" style="text-align:center;color:#959d9e;padding:32px">条件に合う曲はありません。</td></tr>';
+  updatePreview();
+}
+
+
+async function startDeckPlayback(operation){
+  preview.stop();pendingDeckPlayback++;
+  try{return await operation();}finally{pendingDeckPlayback--;}
+}
+async function togglePreview(trackId){
+  if(!tracks.some(t=>t.id===trackId))return;
+  if(pendingDeckPlayback||['a','b'].some(id=>{const state=engine.getState(id);return state.playing||state.scratching;})){
+    toast('DJデッキが再生中です。試聴するにはデッキを停止してください。');return;
+  }
+  setView('library');
+  await preview.toggle(trackId);
+}
+function updatePreviewProgress(){
+  const state=preview.getState();
+  if(!state.trackId)return;
+  const seek=$('#preview-seek');
+  seek.max=String(state.duration||0);seek.value=String(state.position);
+  seek.disabled=state.loading||!state.duration||!!state.error;
+  seek.setAttribute('aria-valuetext',`${time(state.position)} / ${time(state.duration)}`);
+  $('#preview-time').textContent=`${time(state.position)} / ${time(state.duration)}`;
+}
+function updatePreview(){
+  const state=preview.getState(),track=tracks.find(t=>t.id===state.trackId);
+  $('#library-preview').hidden=view!=='library'||!track;
+  $('#preview-title').textContent=track?.title||'';
+  $('#preview-artist').textContent=track?.artist||'アーティスト未設定';
+  $('#preview-status').textContent=state.loading?'読み込み中…':state.error?'再生できませんでした':state.playing?'試聴中':state.position?'一時停止':'試聴';
+  const play=$('#preview-toggle');
+  play.textContent=state.loading?'×':state.playing?'Ⅱ':'▶';
+  play.setAttribute('aria-label',state.loading?'試聴の読み込みをキャンセル':state.playing?'試聴を一時停止':'試聴を再生');
+  play.setAttribute('aria-pressed',String(state.playing));
+  $('#preview-stop').disabled=!state.loading&&!state.playing&&!state.position;
+  const rate=state.rate??1,percent=(rate-1)*100;
+  $('#preview-rate').value=String(percent);
+  $('#preview-rate-value').textContent=`${percent>=0?'+':''}${percent.toFixed(1)}%`;
+  const bpm=$('#preview-bpm');bpm.disabled=!track?.bpm;
+  if(track?.bpm){bpm.min=String(track.bpm*.5);bpm.max=String(track.bpm*1.5);}
+  if(document.activeElement!==bpm)bpm.value=track?.bpm?(track.bpm*rate).toFixed(2):'';
+  $('#preview-edit-bpm').textContent=track?.bpm?`解析BPM ${track.bpm.toFixed(2)} を修正`:'解析BPMを設定';
+  for(const band of ['low','mid','high']){
+    const db=state.eq?.[band]??0;
+    $(`#preview-eq-${band}`).value=String(db);
+    $(`#preview-eq-${band}-value`).textContent=`${db>0?'+':''}${db.toFixed(1)} dB`;
+  }
+
+  const trackIndex=new Map(tracks.map(item=>[item.id,item]));
+  for(const button of $$('[data-preview]')){
+    const selected=button.dataset.preview===state.trackId;
+    const item=trackIndex.get(button.dataset.preview);
+    button.textContent=selected&&state.loading?'×':selected&&state.playing?'Ⅱ':'▶';
+    button.setAttribute('aria-label',`${item?.title||'この曲'} ${selected&&state.loading?'の読み込みをキャンセル':selected&&state.playing?'の試聴を一時停止':'を試聴'}`);
+    button.setAttribute('aria-pressed',String(selected&&state.playing));
+    button.classList.toggle('active',selected);
+    button.closest('tr').classList.toggle('is-previewing',selected);
+  }
+  updatePreviewProgress();
 }
 
 let worker;
@@ -263,6 +327,7 @@ function events(){
     if(target.dataset.view)setView(target.dataset.view);
     if(target.dataset.load){const [deck,id]=target.dataset.load.split(':');loadDeck(deck,id);}
     if(target.dataset.edit)openTrack(target.dataset.edit);
+    if(target.dataset.preview)togglePreview(target.dataset.preview).catch(report);
     if(target.dataset.hotcue){const [deck,index]=target.dataset.hotcue.split(':');hotCue(deck,Number(index),event.shiftKey).catch(report);}
     if(target.dataset.playlist){activePlaylist=target.dataset.playlist;renderLibrary();}
     if(target.dataset.loopSize){const [deck,size]=target.dataset.loopSize.split(':');decks[deck].loopBeats=Number(size);$$(`[data-loop-size^="${deck}:"]`).forEach(b=>b.classList.toggle('active',b===target));if(engine.getState(deck).loop){engine.clearLoop(deck);toggleLoop(deck);updateDecks();}}
@@ -273,6 +338,24 @@ function events(){
   });
   document.addEventListener('input',event=>{const el=event.target;if(!el.dataset.control)return;const id=el.dataset.control;const value=Number(el.value);setControl(id,id.includes('.eq.')?(value+24)/36:id.endsWith('.tempo')?value/100+.5:value);});
   $('#crossfader').addEventListener('input',e=>setControl('mixer.crossfader',Number(e.target.value)));$('#master').addEventListener('input',e=>setControl('mixer.master',Number(e.target.value)));$('#center-fader').onclick=()=>setControl('mixer.crossfader',.5);
+  $('#preview-toggle').onclick=()=>togglePreview(preview.getState().trackId).catch(report);
+  $('#preview-stop').onclick=()=>preview.stop();
+  $('#preview-seek').addEventListener('input',event=>preview.seek(Number(event.target.value)));
+  $('#preview-rate').addEventListener('input',event=>preview.setRate(1+Number(event.target.value)/100));
+  $('#preview-bpm').addEventListener('input',event=>{
+    const track=tracks.find(t=>t.id===preview.getState().trackId),value=Number(event.target.value);
+    if(track?.bpm&&Number.isFinite(value)&&value>=track.bpm*.5&&value<=track.bpm*1.5)preview.setRate(value/track.bpm);
+  });
+  $('#preview-bpm').addEventListener('change',event=>{
+    const track=tracks.find(t=>t.id===preview.getState().trackId),value=Number(event.target.value);
+    if(!track?.bpm)return;
+    if(!Number.isFinite(value)||value<track.bpm*.5||value>track.bpm*1.5){toast(`再生BPMは ${(track.bpm*.5).toFixed(2)}〜${(track.bpm*1.5).toFixed(2)} で指定してください。`);event.target.value=(track.bpm*preview.getState().rate).toFixed(2);return;}
+    preview.setRate(value/track.bpm);
+  });
+  $('#preview-edit-bpm').onclick=()=>openTrack(preview.getState().trackId);
+  for(const band of ['low','mid','high'])$(`#preview-eq-${band}`).addEventListener('input',event=>preview.setEQ(band,Number(event.target.value)));
+  $('#preview-reset').onclick=()=>{preview.setRate(1);for(const band of ['low','mid','high'])preview.setEQ(band,0);};
+
   for(const id of ['import-top','import-empty'])$(`#${id}`).onclick=()=>$('#audio-files').click();
   $('#audio-files').addEventListener('change',e=>importFiles([...e.target.files]).catch(report));
   $('#demo-button').onclick=()=>importFiles([demoWav(124,0),demoWav(128,1)]).catch(report);
@@ -297,6 +380,7 @@ function events(){
     try{
       await trackQueue.run(track.id,async()=>{
         for(const id of ['a','b'])if(decks[id].pendingTrackId===track.id){decks[id].loadNonce++;decks[id].pendingTrackId=null;}
+        if(preview.getState().trackId===track.id)preview.clear();
         await library.removeTrack(track.id);
         for(const id of ['a','b'])if(decks[id].trackId===track.id){engine.pause(id);decks[id].trackId=null;decks[id].loadNonce++;}
         tracks=tracks.filter(t=>t.id!==track.id);playlists=await library.getPlaylists();
@@ -313,7 +397,7 @@ function events(){
   $('#reset-profile').onclick=async()=>{if(await askConfirm('MIDI・キーの割り当てを初期状態へ戻しますか？'))mapping.reset();};
   document.addEventListener('keydown',e=>{if(e.code==='Escape'&&mapping.learning){mapping.cancelLearn();renderMappings();return;}mapping.handleKeyDown(e);});document.addEventListener('keyup',e=>mapping.handleKeyUp(e));
   window.addEventListener('resize',()=>updateDecks());
-  window.addEventListener('pagehide',()=>{for(const id of ['a','b'])engine.pause(id);});
+  window.addEventListener('pagehide',()=>{preview.clear();for(const id of ['a','b'])engine.pause(id);});
 }
 
 async function start(){

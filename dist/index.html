@@ -39,6 +39,21 @@
         <div class="library-heading"><div><span class="eyebrow">COLLECTION</span><h2>あなたのレコード箱<span id="track-count">0 TRACKS</span></h2></div><div class="library-actions"><button class="button subtle compact" id="demo-button">デモ音源を試す</button><button class="button subtle compact" id="export-library">ライブラリ保存 ↗</button><button class="button subtle compact" id="usb-info">USB書き出し</button></div></div>
         <p class="library-drop-hint">音源をこの画面にドロップ、または「音源を追加」から選択。複数の曲をまとめて解析できます。</p>
         <div class="library-toolbar"><div class="playlist-tabs" id="playlist-tabs"></div><button class="text-button" id="new-playlist">＋ プレイリスト</button><label class="search"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="m12 12 5 5"/></svg><input id="search" placeholder="曲名・アーティストで検索" type="search" autocomplete="off" aria-label="曲名・アーティストで検索"></label><label class="sort"><span class="sr-only">曲の並び順</span><select id="sort"><option value="added">追加順</option><option value="bpm">BPM順</option><option value="title">曲名順</option></select></label></div>
+        <section class="library-preview" id="library-preview" aria-label="楽曲の試聴" hidden>
+          <div class="preview-buttons"><button id="preview-toggle" class="preview-play" aria-label="試聴を再生" aria-pressed="false">▶</button><button id="preview-stop" class="preview-stop" aria-label="試聴を停止して先頭に戻す" title="停止して先頭に戻す">■</button></div>
+          <div class="preview-meta"><span id="preview-status" class="preview-status" role="status">試聴</span><strong id="preview-title"></strong><span id="preview-artist"></span></div>
+          <div class="preview-timeline"><input id="preview-seek" type="range" min="0" max="0" step="0.1" value="0" aria-label="試聴の再生位置"><output id="preview-time" for="preview-seek" aria-live="off">0:00 / 0:00</output></div>
+          <div class="preview-adjustments">
+            <div class="preview-tempo"><div class="preview-bpm-header"><label for="preview-bpm">再生BPM <input id="preview-bpm" type="number" step="0.01" inputmode="decimal" aria-label="試聴の再生BPM"></label><button id="preview-edit-bpm" class="text-button">解析BPMを修正</button></div><label class="preview-rate-label" for="preview-rate">TEMPO <output id="preview-rate-value" for="preview-rate">+0.0%</output></label><input id="preview-rate" type="range" min="-50" max="50" step="0.1" value="0" aria-label="試聴のテンポ"></div>
+            <div class="preview-eq">
+              <label for="preview-eq-low">LOW<input id="preview-eq-low" type="range" min="-24" max="12" step="0.1" value="0" aria-label="試聴のLOW EQ"><output id="preview-eq-low-value" for="preview-eq-low">0.0 dB</output></label>
+              <label for="preview-eq-mid">MID<input id="preview-eq-mid" type="range" min="-24" max="12" step="0.1" value="0" aria-label="試聴のMID EQ"><output id="preview-eq-mid-value" for="preview-eq-mid">0.0 dB</output></label>
+              <label for="preview-eq-high">HIGH<input id="preview-eq-high" type="range" min="-24" max="12" step="0.1" value="0" aria-label="試聴のHIGH EQ"><output id="preview-eq-high-value" for="preview-eq-high">0.0 dB</output></label>
+            </div>
+          </div>
+          <div class="preview-settings-foot"><span>試聴時のみ適用。テンポと音程は連動します。別の曲を選ぶと調整はリセット。</span><button id="preview-reset" class="text-button">調整をリセット</button></div>
+
+        </section>
         <div class="library-table-wrap"><table class="library-table"><thead><tr><th class="track-index">#</th><th>TRACK / ARTIST</th><th class="wave-cell">WAVEFORM</th><th><button class="text-button" id="sort-bpm">BPM ↕</button></th><th>TIME</th><th class="load-heading">LOAD TO DECK</th><th><span class="sr-only">曲の操作</span></th></tr></thead><tbody id="track-list"></tbody></table></div>
         <div class="empty-state" id="empty-library"><svg viewBox="0 0 72 72" aria-hidden="true"><path d="M12 25h48v34H12zM19 25v-9h34v9M26 16V8h20v8M20 36h32M20 45h21"/></svg><div><h3>次のセットは、ここから。</h3><p>音源ファイルをここへドラッグ＆ドロップ。<br>iPadでは「最初の曲を追加」からファイルを選べます。</p><button class="button primary" id="import-empty">＋ 最初の曲を追加</button></div></div>
         <div class="library-footer"><span id="library-status">MP3・WAV・AACなど、ブラウザで再生できる音源に対応</span><span id="storage-status">端末内に保存</span></div>

@@ -31,3 +31,38 @@
 .drop-title{display:block;color:var(--text);font-size:clamp(22px,4vw,32px);font-weight:650;margin:0 0 14px}
 .drop-copy{color:#b4cbc8;font-size:13px;line-height:1.9;margin:0}
 @media(max-width:560px){.library-intro{padding:18px 0 16px}.library-intro h1{font-size:21px}.library-drop-hint{padding:12px 14px;font-size:11px}}
+
+/* Library audition stays separate from the performance decks. */
+.track-identity{display:flex;align-items:center;gap:12px;min-width:0}
+.track-copy{min-width:0}
+.track-copy .track-title,.track-copy .track-artist{max-width:clamp(160px,22vw,640px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.preview-track-button{width:40px;min-height:44px;flex:0 0 40px;background:#243033;border:1px solid #425451;border-radius:5px;color:var(--teal);font-size:13px}
+.preview-track-button.active{background:#31534c;border-color:var(--teal);color:#d2eee3}
+.is-previewing td{background:#23353055}
+.library-preview{position:sticky;top:10px;z-index:3;display:grid;grid-template-columns:auto minmax(100px,1fr) minmax(180px,1.3fr);align-items:center;gap:20px;padding:14px 18px;margin:16px 0 8px;border:1px solid #49746b;border-radius:8px;background:#1b2b28;box-shadow:0 5px 20px #0004}
+.preview-buttons{display:flex;gap:8px}
+.preview-buttons button{min-height:44px;width:44px;border:1px solid #56736a;border-radius:5px;font-size:16px}
+.preview-play{background:var(--teal);color:#142c26}
+.preview-stop{background:#283e37;color:#c0d9cf}
+.preview-meta{min-width:0;display:flex;flex-direction:column;gap:5px}
+.preview-meta strong,.preview-meta>span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.preview-meta strong{font-size:13px;font-weight:600}
+.preview-meta>span:last-child{color:#a3b8b1;font-size:10px}
+.preview-status{font-size:9px;color:var(--teal)}
+.preview-timeline{display:flex;align-items:center;gap:14px;min-width:0}
+.preview-timeline output{flex-shrink:0;color:#c1d3cb;font:10px var(--mono)}
+@media(max-width:820px){.library-preview{gap:12px;padding:12px}.preview-timeline{grid-column:1/-1}.library-preview{grid-template-columns:auto minmax(0,1fr)}}
+@media(max-width:560px){.track-identity{gap:7px}.track-copy .track-title,.track-copy .track-artist{max-width:clamp(72px,22vw,124px)}.preview-track-button{width:36px;flex-basis:36px}.library-preview{top:6px}.preview-meta strong{font-size:12px}}
+
+.preview-adjustments{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:28px;border-top:1px solid #3c534b;padding-top:12px}
+.preview-bpm-header{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.preview-bpm-header label{font-size:11px;color:#b7cdc4;display:flex;align-items:center;gap:10px;white-space:nowrap}
+.preview-bpm-header input{width:96px;min-height:40px;padding:8px;font:15px var(--mono);color:var(--teal)}
+.preview-bpm-header .text-button{font-size:10px;text-align:right;line-height:1.5}
+.preview-rate-label{display:flex;justify-content:space-between;margin-top:10px;color:#a3b8b1;font:9px var(--mono)}
+.preview-eq{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;align-items:center}
+.preview-eq label{min-width:0;display:flex;flex-direction:column;align-items:center;gap:7px;color:#a3b8b1;font:9px var(--mono)}
+.preview-eq output{color:#d3e0da}
+.preview-settings-foot{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:14px;color:#a3b8b1;font-size:10px;line-height:1.6;margin-top:-10px}
+.preview-settings-foot .text-button{white-space:nowrap;color:var(--teal)}
+@media(max-width:620px){.preview-adjustments{grid-template-columns:minmax(0,1fr);gap:10px}.preview-settings-foot{align-items:flex-start;font-size:9px}.preview-settings-foot .text-button{font-size:10px}.preview-eq{gap:12px}.preview-eq label{gap:3px}}
