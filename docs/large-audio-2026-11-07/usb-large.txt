@@ -1,0 +1,27 @@
+✔ real 1 GiB WAV USB export preserves long-track audio, metadata and final cues (2997.780708ms)
+ℹ tests 1
+ℹ suites 0
+ℹ pass 1
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3077.47
+        3.13 real         2.86 user         0.80 sys
+           109854720  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+               21875  page reclaims
+                 370  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                  34  messages sent
+                  12  messages received
+                   0  signals received
+                 117  voluntary context switches
+               50119  involuntary context switches
+           871628974  instructions retired
+           283779155  cycles elapsed
+            18876816  peak memory footprint

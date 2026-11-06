@@ -11,6 +11,8 @@ import {validateUsbLibrary, buildRekordboxXml, exportPositionMarks} from '../dis
 import {readExport} from './usb-inspect.mjs';
 import {stageAnalysisSources,verifyAnalysisCarryover,verifyBeatGrid} from './analysis-source.mjs';
 import {BAKEN_VERSION, BAKEN_REVISION} from './setup-usb-exporter.mjs';
+import {sourceAudioMetadata,verifyAudioMetadata} from './audio-source-info.mjs';
+import {readOneLibrary,verifyOneLibrary} from './onelibrary-verify.mjs';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const run = (binary, args, {quiet = false} = {}) => new Promise((done, reject) => {
   const child = spawn(binary, args, {env:{...process.env, BAKEN_NO_UPDATE_CHECK:'1', NO_COLOR:'1'}, stdio:['ignore','pipe','pipe']});
@@ -101,7 +103,8 @@ export async function exportUsb({libraryPath, audioDir, out, bakenPath, analysis
   if (!info.isFile() || info.size > 64 * 1024 * 1024) throw new Error('64 MiB以下のライブラリJSONを指定してください。');
   const library = validateUsbLibrary(await readFile(libraryPath, 'utf8'));
   const sources = await resolveAudioFiles(library, audioDir);
-  const generated = buildRekordboxXml(library, sources);
+  const audioMetadata = await sourceAudioMetadata(library, sources);
+  const generated = buildRekordboxXml(library, sources, audioMetadata);
   const binary = bakenPath || process.env.DECKFLOW_BAKEN_BIN || resolve(root,'.local/baken/bin/baken');
   const version = (await run(binary, ['--version'], {quiet:true})).trim();
   if (version !== `baken ${BAKEN_VERSION}`) throw new Error(`検証対象はbaken ${BAKEN_VERSION}です。現在: ${version}`);
@@ -116,10 +119,10 @@ export async function exportUsb({libraryPath, audioDir, out, bakenPath, analysis
     await mkdir(device); // exclusive: never open an existing library
     createdOutput = !dryRun;
     const args = ['expressport', xmlPath, '--device', device, '--device-name', 'DECKFLOW',
-      '--generate-analysis', '--anlz-dir', stagedAnalysis, '--no-settings'];
+      '--generate-analysis', '--anlz-dir', stagedAnalysis, '--no-settings', '--onelibrary'];
     if (dryRun) args.push('--dry-run');
     await run(binary, args, {quiet});
-    if (dryRun) return {dryRun:true, tracks:library.tracks.length, target:'CDJ-3000', output, bakenVersion:BAKEN_VERSION, analysis:library.tracks.map(track => ({id:track.id,status:selections.get(track.id).status,reason:selections.get(track.id).reason}))};
+    if (dryRun) return {dryRun:true, tracks:library.tracks.length, target:'CDJ-3000', deviceFormats:['Device Library','OneLibrary'], output, bakenVersion:BAKEN_VERSION, analysis:library.tracks.map(track => ({id:track.id,status:selections.get(track.id).status,reason:selections.get(track.id).reason}))};
     const reread = await readExport(output);
     if (reread.tracks.length !== library.tracks.length) throw new Error('出力された曲数がライブラリと一致しません。');
     const trackMap = new Map(reread.tracks.map(track => [track.sourceId, track]));
@@ -127,6 +130,7 @@ export async function exportUsb({libraryPath, audioDir, out, bakenPath, analysis
     for (let i = 0; i < library.tracks.length; i++) {
       const source = library.tracks[i], deviceTrack = trackMap.get(i + 1);
       if (!deviceTrack || deviceTrack.title !== source.title || Math.abs(deviceTrack.bpm - source.bpm) > .011) throw new Error(`${source.filename}: PDBメタデータの読み戻しが一致しません。`);
+      verifyAudioMetadata(source, deviceTrack, audioMetadata.get(source.id));
       const selection = selections.get(source.id);
       if (!deviceTrack.dat.tags.includes('PWAV') || !deviceTrack.ext.tags.includes('PWV3')) throw new Error(`${source.filename}: 波形データが不足しています。`);
       if (selection.status === 'generated' && (!deviceTrack.dat.tags.includes('PWV2') ||
@@ -138,6 +142,7 @@ export async function exportUsb({libraryPath, audioDir, out, bakenPath, analysis
       const hash = await hashFile(sources.get(source.id));
       if (hash !== await hashFile(deviceTrack.audio)) throw new Error(`${source.filename}: コピーした音源が元ファイルと一致しません。`);
       checked.push({id:source.id, title:source.title, filename:source.filename, bpm:deviceTrack.bpm, sha256:hash,
+        size:deviceTrack.size, duration:deviceTrack.duration, sampleRate:deviceTrack.sampleRate, bitRate:deviceTrack.bitRate,
         usbPath:deviceTrack.path, analysisPath:deviceTrack.analysisPath, beats:beats.length, analysis:{status:selection.status,reason:selection.reason,
           ...(selection.status === 'reused' ? {sourceFiles:selection.sourceFiles,sourceSha256:selection.sourceHash,
             waveformHashes:Object.fromEntries(Object.entries(selection.files).map(([extension,file])=>[extension,Object.fromEntries(Object.entries(file.sectionHashes).filter(([tag])=>/^PW(?:AV|V\d)$/.test(tag)))]))} : {})}});
@@ -152,9 +157,14 @@ export async function exportUsb({libraryPath, audioDir, out, bakenPath, analysis
       if (index < 0) throw new Error(`${expected.name}: プレイリストの曲順が一致しません。`);
       uncheckedLists.splice(index, 1);
     }
+    const deviceIds = new Map(reread.tracks.map(track => [track.sourceId,track.id]));
+    const expectedPlaylists = generated.playlists.map(list => ({...list,
+      trackIds:list.trackIds.map(id => deviceIds.get(generated.numericIds[id]))}));
+    verifyOneLibrary(await readOneLibrary(output), reread, expectedPlaylists);
     const report = {format:'deckflow.usb-export-report', version:1, exportedAt:new Date().toISOString(),
       target:'CDJ-3000', deviceFormat:'Device Library', bakenVersion:BAKEN_VERSION, reviewedBakenRevision:BAKEN_REVISION,
-      validation:'PDB/ANLZ metadata, playlist hierarchy/order, complete beat grids, cues/loops/names/device palette colors, carried waveform hashes and SHA-256 audio copy checked',
+      deviceFormats:['Device Library','OneLibrary'], oneLibraryVerified:true,
+      validation:'PDB/OneLibrary metadata, audio sizes/durations/WAV sample rates, playlist hierarchy/order, complete beat grids, cues/loops/names/device palette colors, carried waveform hashes and SHA-256 audio copy checked',
       hardwareVerified:false, settings:'not exported; player keeps its settings', tracks:checked,
       playlists:reread.playlists.filter(list => !list.folder).map(list => ({name:list.name,tracks:list.trackIds.length}))};
     await writeFile(join(output,'DECKFLOW-REPORT.json'), JSON.stringify(report,null,2) + '\n', {flag:'wx'});

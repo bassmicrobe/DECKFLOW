@@ -1,4 +1,4 @@
-import {createWaveformAccumulator, WAVEFORM_FIELDS} from './waveform-data.js?v=97faa0ed72231add';
+import {createWaveformAccumulator, WAVEFORM_FIELDS} from './waveform-data.js?v=15d483d12b5c45ed';
 let active = null;
 self.onmessage = ({data}) => {
   const {type, id} = data ?? {};

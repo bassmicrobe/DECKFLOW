@@ -1,20 +1,22 @@
-import {createAnalysisInput} from './analysis-input.js?v=97faa0ed72231add';
-import {bindTouchSlider} from './touch-slider.js?v=97faa0ed72231add';
-import {bindPlatterGesture} from './platter-gesture.js?v=97faa0ed72231add';
-import {AudioEngine} from './audio-engine.js?v=97faa0ed72231add';
-import {MappingManager} from './mappings.js?v=97faa0ed72231add';
-import {openLibrary} from './library-store.js?v=97faa0ed72231add';
-import {validateUsbLibrary} from './usb-export.js?v=97faa0ed72231add';
-import {createTrackQueue} from './track-updates.js?v=97faa0ed72231add';
-import {installFileDrop,isAudioFile} from './file-drop.js?v=97faa0ed72231add';
-import {PreviewPlayer} from './preview-player.js?v=97faa0ed72231add';
-import {AudioBufferCache} from './audio-buffer-cache.js?v=97faa0ed72231add';
-import {WaveformCache} from './waveform-cache.js?v=97faa0ed72231add';
-import {drawWaveform,getWaveformWindow,timeAtWaveformX,waveformBeats} from './waveform-view.js?v=97faa0ed72231add';
-import {indexFileList,indexDirectory,createSourceIndex,databaseCandidates,createLibraryReader} from './library-source.js?v=97faa0ed72231add';
-import {cacheSourceLibrary} from './source-import.js?v=97faa0ed72231add';
-import {parseRekordboxXml} from './rekordbox-import.js?v=97faa0ed72231add';
-import {findImportedAudio,audioPeaks,tempoAt,advanceBeats,relinkMetadata} from './import-audio.js?v=97faa0ed72231add';
+import {createAnalysisInput} from './analysis-input.js?v=15d483d12b5c45ed';
+import {isPcmFileResource} from './audio-resource.js?v=15d483d12b5c45ed';
+import {analyzeAudioResource,audioResourcePeaks} from './audio-resource-analysis.js?v=15d483d12b5c45ed';
+import {bindTouchSlider} from './touch-slider.js?v=15d483d12b5c45ed';
+import {bindPlatterGesture} from './platter-gesture.js?v=15d483d12b5c45ed';
+import {AudioEngine} from './audio-engine.js?v=15d483d12b5c45ed';
+import {MappingManager} from './mappings.js?v=15d483d12b5c45ed';
+import {openLibrary} from './library-store.js?v=15d483d12b5c45ed';
+import {validateUsbLibrary} from './usb-export.js?v=15d483d12b5c45ed';
+import {createTrackQueue} from './track-updates.js?v=15d483d12b5c45ed';
+import {installFileDrop,isAudioFile} from './file-drop.js?v=15d483d12b5c45ed';
+import {PreviewPlayer} from './preview-player.js?v=15d483d12b5c45ed';
+import {AudioBufferCache} from './audio-buffer-cache.js?v=15d483d12b5c45ed';
+import {WaveformCache} from './waveform-cache.js?v=15d483d12b5c45ed';
+import {drawWaveform,getWaveformWindow,timeAtWaveformX,waveformBeats} from './waveform-view.js?v=15d483d12b5c45ed';
+import {indexFileList,indexDirectory,createSourceIndex,databaseCandidates,createLibraryReader} from './library-source.js?v=15d483d12b5c45ed';
+import {cacheSourceLibrary} from './source-import.js?v=15d483d12b5c45ed';
+import {parseRekordboxXml} from './rekordbox-import.js?v=15d483d12b5c45ed';
+import {findImportedAudio,audioPeaks,tempoAt,advanceBeats,relinkMetadata} from './import-audio.js?v=15d483d12b5c45ed';
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -112,7 +114,7 @@ async function loadDeck(deck,trackId) {
   const nonce=++decks[deck].loadNonce;
   decks[deck].pendingTrackId=trackId;
   $(`#${deck}-title`).textContent='読み込み中…';
-  try {const buffer=await bufferCache.get(trackId,async()=>{const blob=await library.getAudio(trackId);if(!blob)throw new Error('元の音源を読み込めません。曲を追加し直してください。');return engine.decode(await blob.arrayBuffer());});if(nonce!==decks[deck].loadNonce||!tracks.some(t=>t.id===trackId))return;
+  try {const buffer=await bufferCache.get(trackId,async()=>{const blob=await library.getAudio(trackId);if(!blob)throw new Error('元の音源を読み込めません。曲を追加し直してください。');return engine.decodeFile(blob);});if(nonce!==decks[deck].loadNonce||!tracks.some(t=>t.id===trackId))return;
     platterGestures.get(deck)?.cancel();engine.load(deck,buffer);prepareWaveform(trackId,buffer);engine.setCue(deck,track.cue||0);decks[deck].trackId=trackId;decks[deck].angle=0;
     setControl(`${deck}.tempo`,.5);updateDecks();renderLibrary();toast(`デッキ ${deck.toUpperCase()} に ${track.title} を読み込みました。`);
   } catch(error){if(nonce===decks[deck].loadNonce)updateDecks();report(error);}finally{if(nonce===decks[deck].loadNonce)decks[deck].pendingTrackId=null;}
@@ -202,7 +204,7 @@ function prepareWaveform(trackId,buffer){
     while(detailedWaves.size>8){const removable=[...detailedWaves.keys()].find(id=>id!==decks.a.trackId&&id!==decks.b.trackId&&id!==preview.getState().trackId);if(!removable)break;detailedWaves.delete(removable);}
     for(const id of ['a','b'])if(decks[id].trackId===trackId)drawWave(id);
     drawLibraryWaves();drawPreviewWave();
-  }).catch(()=>{/* Display data is optional; keep the existing overview and audio. */}).finally(()=>{if(waveformJobs.get(trackId)===token)waveformJobs.delete(trackId);});
+  }).catch(error=>{if(pageActive&&waveformJobs.get(trackId)===token){console.warn('Detailed waveform unavailable:',error);toast('詳細波形を生成できませんでした。全体波形で再生を続けられます。');}}).finally(()=>{if(waveformJobs.get(trackId)===token)waveformJobs.delete(trackId);});
 }
 function invalidateWaveform(trackId){const track=tracks.find(item=>item.id===trackId);const key=waveformKeys.get(trackId)||(track?JSON.stringify([track.id,track.fingerprint||'']):null);if(key)waveformCache.delete(key);waveformKeys.delete(trackId);waveformJobs.delete(trackId);detailedWaves.delete(trackId);}
 function waveOptions(track,state){return {waveform:detailedWaves.get(track?.id),peaks:track?.peaks,duration:state.duration||track?.duration||0,position:state.position,markers:(track?.hotcues||[]).flatMap((time,i)=>time==null?[]:[{time,label:String.fromCharCode(65+i)}]),loop:state.loop};}
@@ -322,11 +324,15 @@ function updatePreview(){
 let worker;
 let analysisId=0;
 const pendingAnalysis=new Map();
-function analyze(buffer){
+function analyze(buffer,onProgress=()=>{}){
+  if(isPcmFileResource(buffer))return analyzeAudioResource(buffer,{analyze:analyzeInput,onProgress});
+  const {samples,sampleRate}=createAnalysisInput(buffer);
+  return analyzeInput(samples,sampleRate);
+}
+function analyzeInput(samples,sampleRate){
   return new Promise((resolve,reject)=>{
-    if(!worker){worker=new Worker(new URL('./analysis-worker.js?v=97faa0ed72231add',import.meta.url),{type:'module'});worker.onmessage=({data})=>{const entry=pendingAnalysis.get(data.id);if(!entry)return;pendingAnalysis.delete(data.id);clearTimeout(entry.timer);data.error?entry.reject(new Error(data.error)):entry.resolve(data.result);};worker.onerror=()=>{for(const entry of pendingAnalysis.values()){clearTimeout(entry.timer);entry.reject(new Error('解析処理を開始できませんでした。ページを再読み込みしてください。'));}pendingAnalysis.clear();worker.terminate();worker=null;};}
-    const {samples,sampleRate}=createAnalysisInput(buffer);
-    const id=++analysisId;const timer=setTimeout(()=>{pendingAnalysis.delete(id);reject(new Error('解析に時間がかかっています。短い音源でお試しください。'));},90000);
+    if(!worker){worker=new Worker(new URL('./analysis-worker.js?v=15d483d12b5c45ed',import.meta.url),{type:'module'});worker.onmessage=({data})=>{const entry=pendingAnalysis.get(data.id);if(!entry)return;pendingAnalysis.delete(data.id);clearTimeout(entry.timer);data.error?entry.reject(new Error(data.error)):entry.resolve(data.result);};worker.onerror=()=>{for(const entry of pendingAnalysis.values()){clearTimeout(entry.timer);entry.reject(new Error('解析処理を開始できませんでした。ページを再読み込みしてください。'));}pendingAnalysis.clear();worker.terminate();worker=null;};}
+    const id=++analysisId;const timer=setTimeout(()=>{pendingAnalysis.delete(id);reject(new Error('解析処理が応答しません。もう一度お試しください。'));},90000);
     pendingAnalysis.set(id,{resolve,reject,timer});worker.postMessage({id,samples,sampleRate},[samples.buffer]);
   });
 }
@@ -370,20 +376,21 @@ async function importFiles(files,selectedId=null){
     $('#library-status').textContent=`読み込み中 ${i+1} / ${files.length} — ${file.name}`;
     try {
       if(!isAudioFile(file))throw new Error('音源ファイルを選んでください（MP3・WAV・AACなど）。');
-      if(file.size>80*1024*1024)throw new Error('1曲80 MB以内の音源を選んでください。');
-      let buffer=await engine.decode(await file.arrayBuffer());
+      let buffer=await engine.decodeFile(file);
       const imported=findImportedAudio(tracks,file,buffer.duration,selectedId);
       if(imported){
-        const peaks=audioPeaks(buffer),duration=buffer.duration;buffer=null;
+        const peaks=isPcmFileResource(buffer)?await audioResourcePeaks(buffer):audioPeaks(buffer),duration=buffer.duration;buffer=null;
         await trackQueue.run(imported.id,async()=>{
           const current=tracks.find(t=>t.id===imported.id);if(!current)throw new Error('この曲は削除されています。');
           const metadata=relinkMetadata(current,file,duration,peaks);
+          $('#library-status').textContent=`音源を保存中 ${i+1} / ${files.length} — ${file.name}`;
           bufferCache.delete(metadata.id);invalidateWaveform(metadata.id);await library.putTrack(metadata,file);tracks=tracks.map(t=>t.id===metadata.id?metadata:t);
         });linked++;
       }else{
-        const result=await analyze(buffer);buffer=null;
+        const result=await analyze(buffer,message=>{$('#library-status').textContent=`${message} — ${file.name}`;});buffer=null;
         const stem=file.name.replace(/\.[^.]+$/,'');const split=stem.split(' - ');const title=split.length>1?split.slice(1).join(' - '):stem;const artist=split.length>1?split[0]:'';
         const metadata={id:uid(),title,artist,bpm:result.bpm,confidence:result.confidence,duration:result.duration,beatOffset:result.beatOffset||0,peaks:result.peaks,cue:0,hotcues:Array(8).fill(null),filename:file.name,fingerprint,addedAt:Date.now()};
+        $('#library-status').textContent=`音源を保存中 ${i+1} / ${files.length} — ${file.name}`;
         await library.putTrack(metadata,file);tracks.push(metadata);added++;
       }
       renderLibrary();
@@ -460,7 +467,7 @@ async function importSource(){
   try{
     sourceReader=createLibraryReader();
     const result=await cacheSourceLibrary({library,index:selectedSourceIndex,candidate,sources,sourceId:refreshSourceId,reader:sourceReader,signal:sourceController.signal,
-      saveTrack:(track,blob,base)=>trackQueue.run(track.id,async()=>{const current=tracks[sourcePositions.get(track.id)];if(!current)throw new Error('この曲は削除されています。');const next={...track};if(base)for(const field of ['title','artist','bpm','cue','hotcues','tempos','positionMarks','beatOffset'])if(JSON.stringify(current[field])!==JSON.stringify(base[field]))next[field]=current[field];await library.putTrack(next,blob);return next;}),
+      saveTrack:(track,blob,base,{signal})=>trackQueue.run(track.id,async()=>{signal?.throwIfAborted();const current=tracks[sourcePositions.get(track.id)];if(!current)throw new Error('この曲は削除されています。');const next={...track};if(base)for(const field of ['title','artist','bpm','cue','hotcues','tempos','positionMarks','beatOffset'])if(JSON.stringify(current[field])!==JSON.stringify(base[field]))next[field]=current[field];await library.putTrack(next,blob,{signal});return next;}),
       onProgress:message=>{$('#source-progress').textContent=message;$('#library-status').textContent=message;},
       onMetadata:async()=>{[tracks,playlists]=await Promise.all([library.getTracks(),library.getPlaylists()]);sourcePositions=new Map(tracks.map((track,index)=>[track.id,index]));setView('library');renderLibrary();},
       onTrack:track=>{const i=sourcePositions.get(track.id);if(i!==undefined)tracks[i]=track;else{sourcePositions.set(track.id,tracks.length);tracks.push(track);}if(performance.now()-lastRender>250){renderLibrary();lastRender=performance.now();}}});

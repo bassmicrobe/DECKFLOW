@@ -1,0 +1,97 @@
+DECKFLOW Node 最終カバレッジ再集計 — 2026-11-07
+
+結果
+同一実ファイルに属するクエリ付きURLを正規化してV8 rangeを合成した結果、
+行/statement 90.74% (4578/5045)、分岐 84.70% (2553/3014)、関数 86.71% (385/444)。
+実ロードされた dist の通常モジュール27件の合計について、80%の目標を満たす。
+対象は最終build cache deckflow-2e1887943bbd92a7 / module graph 15d483d12b5c45ed。
+waveform-cacheの接続失敗後の再試行修正を含む。測定時にruntime/source/buildを変更していない。
+最終Node suiteは265 tests / 264 pass / 0 fail / 1 skip（9.16秒）。tests.txtに全出力を保存。
+
+集計範囲と限界
+従来の Node --test --test-coverage-include='dist/**' --test-coverage-exclude='dist/vendor/**'
+と同じ27ファイルを対象とした。低いファイルを取り除く追加除外は行っていない。
+app.js やブラウザ専用Worker、通常のfile URLでロードされないVM内のWorkletは、このNode集計に入らない。
+VMでWorkletを実行するテストの合否と、そのソースのカバレッジ帰属は区別する。
+vendor、tools、testsも対象外。--allで未ロードソースをゼロとして加えたプロジェクト全体の値ではない。
+Chromeで実施したIndexedDB/Web Locks/ブラウザ操作の到達分は、この数値に加算していない。
+個別の audio-chunk-store.js、library-store.js の行率や waveform-cache.js の関数率は80%未満のまま掲載する。
+したがって「全ファイル80%以上」や「ブラウザを含む全コードの90.74%」を意味しない。
+
+Node標準レポートとの差の原因
+同じファイルの無クエリURLと ?v=... URLが10モジュールで共存し、37 URLが27実ファイルを指した。
+Node v24.16.0 の internal/test_runner/coverage は mergeCoverage 内で完全なURLをキーとして合成し、
+summary表示ではfileURLToPath(url)へ戻すため、別URLの到達数が同じ実ファイルとして合成されない。
+最終版前の調査では、ソースを変えない再実行で標準表の audio-resource.js が15.63%から98.75%へ変わり、
+逆にfile-drop.jsが16.92%となった。標準表の同一path表示だけでは正しい合算を確認できない。
+この二重URLの生データをそのまま80%ゲートの根拠にしない。
+
+実施した最終測定
+1. rootが最終build後、次のコマンドで全Node suiteを一度実行して生V8 coverageを採取した。
+   NODE_V8_COVERAGE=/tmp/deckflow-large-final-v8 DECKFLOW_BAKEN_BIN="$PWD/.local/baken/bin/baken" node --test tests/*.test.mjs
+   265 tests: 264 pass / 0 fail / 1 skip。途中中断なし、実行時間9163.70ms。
+   新たなwaveform保存領域のタイムアウト後再試行、同期open例外、blocked/error後復旧の2件も成功。
+   残るskipは DECKFLOW_LARGE_AUDIO_TEST=1 が必要な実1 GiB USB出力テスト。
+   実1 GiB USB検証の別実行結果は他の検証資料を参照。
+2. この最終実行の /tmp/deckflow-large-final-v8 だけを集計。以前の実行やUSB補完採取データは混ぜていない。
+   file URLをfileURLToPathで正規化（query/hashを除去）し、@bcoe/v8-coverage mergeProcessCovsでrangeを合成。
+   当該実ソースの範囲内にoffsetが収まることを確認。dist対象のcoverageを含む28 process reportを合成。
+3. v8-to-istanbul/c8で表示。独立にc8へ元の生データを直接渡した結果とも、全27件のJSON summaryが完全一致。
+   c8自身もfileURLToPath正規化後に@bcoe/v8-coverageで合成する。
+   line/function/branchがいずれも80%以上であることを数値検査し成功。
+
+使用ツール
+Node v24.16.0 / c8 12.0.0 / @bcoe/v8-coverage 1.0.2 / v8-to-istanbul 9.3.0。
+補助npmパッケージは /tmp/deckflow-coverage-Lg81hE/tools のみへインストール。
+プロジェクトのpackage.json/package-lock.json/dependenciesは変更していない。
+最終生V8データは /tmp/deckflow-large-final-v8/ に保存。
+正規化スクリプト・merged ranges・JSON summaryは /tmp/deckflow-large-final-coverage/ に保存。
+/tmpは一時的な検証資料であり永続保管の保証はない。このファイルに方法と最終結果を記録する。
+
+再現用コマンド（全suiteを同じbaken設定で一度に採取する場合）
+  TASK_COVERAGE_DIR=$(mktemp -d /tmp/deckflow-coverage-XXXXXX)
+  npm install --prefix "$TASK_COVERAGE_DIR/tools" --no-audit --no-fund --ignore-scripts c8@12.0.0 @bcoe/v8-coverage@1.0.2 v8-to-istanbul@9.3.0
+  DECKFLOW_BAKEN_BIN="$PWD/.local/baken/bin/baken" NODE_V8_COVERAGE="$TASK_COVERAGE_DIR/raw" node --test tests/*.test.mjs
+  node "$TASK_COVERAGE_DIR/tools/node_modules/c8/bin/c8.js" report --temp-directory="$TASK_COVERAGE_DIR/raw" --reports-dir="$TASK_COVERAGE_DIR/report" --include='dist/**' --exclude='dist/vendor/**' --reporter=text --reporter=json-summary
+
+各ファイル（c8/V8-to-Istanbul集計）
+file | lines | branches | functions
+dist/analysis-input.js | 100.00% | 100.00% | 100.00%
+dist/analysis.js | 99.05% | 88.50% | 100.00%
+dist/audio-buffer-cache.js | 98.03% | 97.91% | 100.00%
+dist/audio-chunk-store.js | 52.59% | 82.05% | 69.23%
+dist/audio-engine.js | 84.35% | 81.65% | 72.22%
+dist/audio-resource-analysis.js | 96.36% | 81.81% | 100.00%
+dist/audio-resource.js | 98.75% | 84.00% | 100.00%
+dist/file-drop.js | 100.00% | 86.36% | 100.00%
+dist/import-audio.js | 100.00% | 86.27% | 100.00%
+dist/library-source.js | 80.90% | 76.81% | 73.33%
+dist/library-store.js | 68.43% | 84.18% | 75.38%
+dist/mappings.js | 94.67% | 80.15% | 86.84%
+dist/pcm-file-source.js | 97.27% | 88.09% | 88.88%
+dist/pcm-resampler.js | 100.00% | 98.14% | 100.00%
+dist/platter-gesture.js | 98.14% | 85.54% | 88.23%
+dist/preview-player.js | 95.51% | 89.10% | 90.00%
+dist/rekordbox-device.js | 100.00% | 82.56% | 100.00%
+dist/rekordbox-import.js | 96.61% | 78.06% | 100.00%
+dist/rekordbox-model.js | 100.00% | 85.13% | 100.00%
+dist/rekordbox-sqlite.js | 99.48% | 82.63% | 100.00%
+dist/source-import.js | 100.00% | 86.23% | 88.88%
+dist/touch-slider.js | 100.00% | 84.84% | 100.00%
+dist/track-updates.js | 100.00% | 88.88% | 100.00%
+dist/usb-export.js | 100.00% | 83.82% | 100.00%
+dist/waveform-cache.js | 82.87% | 87.83% | 78.12%
+dist/waveform-data.js | 100.00% | 93.44% | 100.00%
+dist/waveform-view.js | 100.00% | 91.71% | 100.00%
+
+URLの重複が確認されたファイル
+dist/analysis.js: 2 variants
+dist/audio-chunk-store.js: 2 variants
+dist/audio-resource.js: 2 variants
+dist/file-drop.js: 2 variants
+dist/library-source.js: 2 variants
+dist/library-store.js: 2 variants
+dist/pcm-file-source.js: 2 variants
+dist/pcm-resampler.js: 2 variants
+dist/rekordbox-model.js: 2 variants
+dist/waveform-data.js: 2 variants

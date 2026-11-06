@@ -6,6 +6,19 @@ const deferred = () => { let resolve, reject; const promise = new Promise((yes, 
 const flush = () => new Promise(resolve => setImmediate(resolve));
 const pcm = (id, bytes = 16) => ({id, length: bytes / 4, numberOfChannels: 1, duration: 60});
 
+test('file-backed PCM descriptors are reused without charging whole-file decoded memory', async () => {
+  const cache = new AudioBufferCache({maxEntries: 1, maxBytes: 16});
+  const resource = {kind:'pcm-file', length:268435456, numberOfChannels:2, sampleRate:44100,
+    duration:268435456 / 44100, readFrames:async()=>assert.fail('cache must not read PCM')};
+  assert.equal(await cache.get('large', () => resource), resource);
+  assert.equal(await cache.get('large', () => assert.fail('descriptor was lost')), resource);
+  assert.equal(cache.stats.bytes, 0);
+  assert.equal(cache.stats.entries, 1);
+  await cache.get('small', () => pcm('small'));
+  assert.equal(cache.stats.entries, 1);
+  assert.equal(cache.stats.evictions, 1);
+});
+
 test('cache deduplicates a pending load and shares the same PCM without invoking another loader', async () => {
   const cache = new AudioBufferCache(), wait = deferred();
   let calls = 0;

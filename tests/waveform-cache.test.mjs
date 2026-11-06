@@ -32,6 +32,41 @@ function workers({defer = false, fail = false} = {}) {
 }
 function cache(options = {}, fixture = workers()) { return {instance: new WaveformCache({indexedDB: undefined, workerFactory: fixture.factory, ...options}), fixture}; }
 
+test('file-backed audio generates identical whole-track waveforms through bounded serial reads', async () => {
+  const original = audio(90000), calls = [];
+  let active = 0, maximumActive = 0;
+  const resource = {kind:'pcm-file', length:original.length, sampleRate:original.sampleRate,
+    numberOfChannels:original.numberOfChannels, duration:original.duration, maxReadFrames:4096,
+    async readFrames(start, count) {
+      active++; maximumActive = Math.max(active, maximumActive); calls.push([start,count]);
+      await tick(); active--;
+      return Array.from({length:2}, (_, channel) => original.getChannelData(channel).slice(start,start+count));
+    }};
+  const {instance} = cache();
+  const expected = await instance.get('decoded', original);
+  const actual = await instance.get('file', resource);
+  assert.deepEqual(actual, expected);
+  assert.equal(maximumActive, 1);
+  assert.ok(calls.every(([,count]) => count <= 4096));
+  assert.equal(calls.reduce((sum,[,count])=>sum+count,0), original.length);
+  instance.dispose();
+});
+
+test('file read errors and cancellation release waveform work without stale posts', async () => {
+  const original = audio(), resource = {kind:'pcm-file', length:original.length, sampleRate:original.sampleRate,
+    numberOfChannels:2, duration:original.duration, readFrames:async()=>{throw new Error('file removed');}};
+  const {instance,fixture} = cache();
+  await assert.rejects(instance.get('broken', resource), /file removed/);
+  assert.equal(instance.stats.pending,0);
+  let finishRead;
+  const pending = instance.get('canceled', {...resource, readFrames:()=>new Promise(resolve=>{finishRead=resolve;})});
+  const rejected = assert.rejects(pending, /中止/);
+  await tick(); instance.dispose(); await rejected;
+  finishRead([new Float32Array(original.length),new Float32Array(original.length)]);
+  await tick();
+  assert.equal(fixture.chunks.length,0);
+});
+
 // A fault-injected derived-data store exercises cache ordering independently of
 // browser IndexedDB. The real IDB backend is separately exercised in browser QA.
 class StoredCache extends WaveformCache {
@@ -41,6 +76,68 @@ class StoredCache extends WaveformCache {
   async _deleteDisk(key) { for (const [id, item] of this.store) if (item.key === key) this.store.delete(id); }
   async _clearDisk() { this.store.clear(); }
 }
+
+// Keep the real opening/retry path while replacing only IDB record requests.
+// Successful writes are shared with a fresh cache to prove persistent reuse.
+class OpeningCache extends WaveformCache {
+  async _readDisk(job) { return (await this._database())?.records.get(job.diskKey) ?? null; }
+  async _writeDisk(job, waveform) { (await this._database())?.records.set(job.diskKey, waveform); }
+}
+
+test('an opening timeout retries persistence, closes the late connection and preserves a successful retry', async () => {
+  const records = new Map(), requests = [], connections = [], fixture = workers();
+  const connection = () => ({records, closed: 0, close() { this.closed++; }});
+  const indexedDB = {open() {
+    const request = {}; requests.push(request);
+    if (requests.length > 1) queueMicrotask(() => {
+      const database = connection(); connections.push(database);
+      request.result = database; request.onsuccess();
+    });
+    return request;
+  }};
+  const first = new OpeningCache({indexedDB, workerFactory: fixture.factory});
+  try {
+    const waveform = await first.get('slow-open', audio());
+    await first.diskTail;
+    assert.equal(records.size, 1, 'A timeout must not permanently disable later writes.');
+    assert.equal(requests.length, 2);
+    assert.equal(first.stats.diskErrors, 1);
+    const late = connection(); requests[0].result = late; requests[0].onsuccess();
+    assert.equal(late.closed, 1, 'Late success must close only the timed-out connection.');
+    assert.equal(connections[0].closed, 0);
+    const next = new OpeningCache({indexedDB, workerFactory: workers({fail: true}).factory});
+    try {
+      assert.equal(await next.get('slow-open', audio()), waveform);
+      assert.equal(next.stats.persistentHits, 1);
+      assert.equal(next.stats.generated, 0);
+    } finally { next.dispose(); }
+  } finally { first.dispose(); }
+});
+
+test('synchronous open errors and blocked/error events can recover without poisoning the cached promise', async () => {
+  for (const failure of ['throw', 'error', 'blocked']) {
+    const records = new Map(); let attempts = 0;
+    const indexedDB = {open() {
+      attempts++;
+      if (attempts === 1 && failure === 'throw') throw new DOMException('Denied', 'SecurityError');
+      const request = {};
+      queueMicrotask(() => {
+        if (attempts === 1) {
+          request[`on${failure}`]();
+          request.onerror(); // More than one failure event still counts once.
+        } else { request.result = {records, close() {}}; request.onsuccess(); }
+      });
+      return request;
+    }};
+    const instance = new OpeningCache({indexedDB, workerFactory: workers().factory});
+    try {
+      await instance.get(failure, audio()); await instance.diskTail;
+      assert.equal(records.size, 1, failure);
+      assert.equal(attempts, 2, failure);
+      assert.equal(instance.stats.diskErrors, 1, failure);
+    } finally { instance.dispose(); }
+  }
+});
 
 test('deduplicates generation, reuses RAM and transfers only bounded owned PCM copies', async () => {
   const {instance, fixture} = cache();

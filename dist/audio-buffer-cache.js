@@ -50,7 +50,10 @@ export class AudioBufferCache {
     job.promise = this.tail.then(async () => {
       try {
         const buffer = await loader();
-        const bytes = buffer?.length * buffer?.numberOfChannels * Float32Array.BYTES_PER_ELEMENT;
+        // A file resource owns only a Blob reference. Playback pages are bounded
+        // by the transport, so the full decoded size is never retained here.
+        const fileBacked = buffer?.kind === 'pcm-file' && typeof buffer.readFrames === 'function';
+        const bytes = fileBacked ? 0 : buffer?.length * buffer?.numberOfChannels * Float32Array.BYTES_PER_ELEMENT;
         if (!Number.isSafeInteger(buffer?.length) || buffer.length <= 0 ||
             !Number.isSafeInteger(buffer?.numberOfChannels) || buffer.numberOfChannels < 1 ||
             buffer.numberOfChannels > 32 || !Number.isSafeInteger(bytes) ||

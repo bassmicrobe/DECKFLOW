@@ -3,10 +3,10 @@
  * Browser output is the current system route; this is not a multichannel CUE driver.
  * Key lock uses locally vendored SoundTouchJS; scratch reads PCM in its own worklet.
  */
+import {openAudioFile} from './audio-resource.js?v=15d483d12b5c45ed';
+import {PcmFileSource, isPcmFile} from './pcm-file-source.js?v=15d483d12b5c45ed';
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, Number.isFinite(Number(value)) ? Number(value) : min));
-const MAX_DECODE_BYTES = 80 * 1024 * 1024;
-const MAX_DURATION_SECONDS = 20 * 60;
 
 function createDeck(id) {
   return {
@@ -98,8 +98,8 @@ export class AudioEngine {
     }
     this.keyLockRegistration = (async () => {
       try {
-        const module = await import('./vendor/soundtouchjs/packages/audio-worklet/.dist/SoundTouchNode.js?v=97faa0ed72231add');
-        const processorUrl = new URL('./vendor/soundtouchjs/packages/audio-worklet/.dist/soundtouch-processor.js?v=97faa0ed72231add', import.meta.url);
+        const module = await import('./vendor/soundtouchjs/packages/audio-worklet/.dist/SoundTouchNode.js?v=15d483d12b5c45ed');
+        const processorUrl = new URL('./vendor/soundtouchjs/packages/audio-worklet/.dist/soundtouch-processor.js?v=15d483d12b5c45ed', import.meta.url);
         await module.SoundTouchNode.register(context, processorUrl);
         if (this.disposed || context !== this.context) return false;
         this.SoundTouchNode = module.SoundTouchNode;
@@ -121,7 +121,7 @@ export class AudioEngine {
     if (!context.audioWorklet || !globalThis.AudioWorkletNode) {
       throw new Error('この環境はスクラッチ音声に対応していません。HTTPSまたはlocalhostで対応ブラウザーを使ってください。');
     }
-    this.scratchRegistration = context.audioWorklet.addModule(new URL('./scratch-worklet.js?v=97faa0ed72231add', import.meta.url)).catch(error => {
+    this.scratchRegistration = context.audioWorklet.addModule(new URL('./scratch-worklet.js?v=15d483d12b5c45ed', import.meta.url)).catch(error => {
       this.scratchRegistration = null;
       throw error;
     });
@@ -151,6 +151,22 @@ export class AudioEngine {
     const buffer = deck.buffer;
     if (!buffer) throw new Error('スクラッチする曲を読み込んでください。');
     if (scratch.buffer === buffer && scratch.ready) return scratch.ready;
+    if (isPcmFile(buffer)) {
+      const node = new PcmFileSource(this._ensureContext(), buffer);
+      scratch.node = node; scratch.buffer = buffer;
+      scratch.ready = node.ready;
+      node.port.onmessage = ({data}) => {
+        if (scratch.node === node && scratch.active && data.session === scratch.token && Number.isFinite(data.position)) {
+          deck.offset = clamp(data.position, 0, buffer.duration);
+        }
+      };
+      node.onerror = () => {
+        if (scratch.node !== node) return;
+        this._releaseScratch(deck);
+        try {this.onStatus({type: 'scratch', available: false, message: '音源の読み取りに失敗しました。ファイルを確認して再生し直してください。'});} catch { /* UI callback. */ }
+      };
+      return scratch.ready;
+    }
     await this._registerScratch();
     if (this.disposed || deck.buffer !== buffer) return false;
     // A second caller may have prepared the same buffer while the module loaded.
@@ -193,9 +209,6 @@ export class AudioEngine {
     if (!(arrayBuffer instanceof ArrayBuffer) || !arrayBuffer.byteLength) {
       throw new Error('読み込める音声データがありません。');
     }
-    if (arrayBuffer.byteLength > MAX_DECODE_BYTES) {
-      throw new Error('この試作では80 MB以下の音声ファイルを選んでください。');
-    }
     const context = this._ensureContext();
     let buffer;
     try {
@@ -207,11 +220,10 @@ export class AudioEngine {
     if (!buffer?.length || !Number.isFinite(buffer.duration) || buffer.duration <= 0) {
       throw new Error('音声の長さを読み取れませんでした。');
     }
-    if (buffer.duration > MAX_DURATION_SECONDS) {
-      throw new Error('この試作では1曲20分以内の音声ファイルを選んでください。');
-    }
     return buffer;
   }
+
+  decodeFile(blob) {return openAudioFile(blob, this._ensureContext());}
 
   load(id, audioBuffer) {
     const deck = this._deck(id);
@@ -246,6 +258,7 @@ export class AudioEngine {
 
   _position(deck, now = this.context?.currentTime || 0) {
     if (!deck.buffer) return 0;
+    if (deck.playing && deck.source instanceof PcmFileSource) return deck.source.position;
     let position = deck.offset + (deck.playing ? Math.max(0, now - deck.startedAt) * deck.rate : 0);
     if (deck.loop && position >= deck.loop.end) {
       const length = deck.loop.end - deck.loop.start;
@@ -301,8 +314,8 @@ export class AudioEngine {
     const context = this._ensureContext();
     if (!deck.buffer) return;
     if (deck.offset >= deck.buffer.duration) deck.offset = 0;
-    const source = context.createBufferSource();
-    source.buffer = deck.buffer;
+    const source = isPcmFile(deck.buffer) ? new PcmFileSource(context, deck.buffer) : context.createBufferSource();
+    if (!isPcmFile(deck.buffer)) source.buffer = deck.buffer;
     source.playbackRate.value = deck.rate;
     if (deck.loop) {
       source.loopStart = deck.loop.start;
@@ -333,6 +346,13 @@ export class AudioEngine {
     const generation = ++deck.generation;
     deck.startedAt = context.currentTime;
     deck.playing = true;
+    source.onerror = error => {
+      if (deck.source !== source) return;
+      this._capture(deck); this._stopSource(deck);
+      deck.playing = false; deck.wantsPlay = false;
+      try {this.onStatus({type: 'audio', deck: deck.id, available: false,
+        message: error?.message || '音源の読み取りに失敗しました。再生し直してください。'});} catch { /* UI callback. */ }
+    };
     source.onended = () => {
       if (deck.source !== source || deck.generation !== generation) return;
       deck.offset = deck.buffer?.duration || 0;
@@ -350,7 +370,8 @@ export class AudioEngine {
       try { this.onEnded(deck.id); } catch { /* A view callback must not break the transport. */ }
     };
     try {
-      source.start(0, deck.offset);
+      const started = source.start(0, deck.offset);
+      if (started?.catch) return started.catch(error => {source.onerror(error);});
     } catch (error) {
       this._stopSource(deck);
       deck.playing = false;
@@ -368,7 +389,7 @@ export class AudioEngine {
     try {
       await this.init();
       if (this.disposed || deck.command !== command || !deck.wantsPlay || deck.playing || !deck.buffer) return;
-      this._start(deck);
+      await this._start(deck);
     } catch (error) {
       if (deck.command === command) deck.wantsPlay = false;
       throw error;
@@ -420,6 +441,7 @@ export class AudioEngine {
       cue: deck.cue,
       loop: deck.loop ? { ...deck.loop } : null,
       scratching: deck.scratch.active || deck.scratch.pending,
+      buffering: Boolean(deck.source?.buffering),
       keyLock: deck.keyLock && this.keyLockReady,
       keyLockRequested: deck.keyLock,
       keyLockAvailable: this.keyLockReady,

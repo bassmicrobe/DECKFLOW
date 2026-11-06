@@ -1,0 +1,28 @@
+Chrome 156.0.8078.80
+Fixture: tests/library-store.browser.html
+
+PASS: 音源は1MiB以内で順次コピーされ、再接続後に全バイトを復元
+PASS: 元音源の途中読み取り失敗では既存曲と音源を保持し、分割データを残さない
+PASS: 分割保存と最終確定の容量不足を注入しても旧音源を保持し、一時データを削除
+PASS: 差し替え・削除で旧分割データを除去し、音源なしの編集では音源を保持
+PASS: 長時間コピー中の別接続からの編集や削除を上書き・復活させない
+PASS: 保存を中止した場合は既存曲を保持し、一時データを削除
+PASS: 同時コピーの一時データを回収せず、中断したコピーだけ次回保存時に回収
+PASS: 読み取り中の差し替え・削除でも旧音源を最後まで読み、次の読み取りへ変更を反映
+PASS: 別接続からの同時プレイリスト作成で両方の保存を保持
+PASS: 曲編集とプレイリスト追加の同時確定・最新CUEと音源の保持
+PASS: 追加先プレイリスト消失時は曲情報も変更しない
+PASS: 後半の保存失敗を注入すると曲・プレイリストが両方ロールバック
+PASS: 読み込み元参照の後半保存失敗は曲・リストも戻し、再試行で重複しない
+PASS: 読み込み元20件の上限で曲・リストを保存せず、再試行しても不変
+PASS: 9,999曲での同時追加は1曲だけ成功し、上限でも編集・削除後の再追加が可能
+PASS: 新しい接続から保存内容を読み直せる
+CLEANUP: 検証用データベースを削除しました。
+結果: 16件成功 / 失敗なし
+
+Source-file removal: synthetic WAV 2097196 bytes, SHA-256 19cfe6f0926887612e8521539f0e30afe5b5428ba9823e9c03547f85436b965b.
+After putTrack commit and original file deletion, same-page and post-reload getAudio both matched all bytes.
+Temporary browser contexts, test databases and synthetic source files were removed.
+
+Node focused checks: node --test tests/library-store.test.mjs tests/audio-chunk-store.test.mjs
+19 passed, 0 failed.

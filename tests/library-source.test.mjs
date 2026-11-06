@@ -9,6 +9,31 @@ import {rewriteAnalysisPath} from '../tools/analysis-source.mjs';
 const fixture=async name=>new Uint8Array(await readFile(new URL(`./fixtures/device-library/${name}`,import.meta.url)));
 const pdb=await fixture('export.pdb');
 const metadata=parseDeviceDatabase(pdb,{sourceId:'fixture'}), entry=metadata.entries[0];
+
+test('source import accepts a 1 GiB multi-hour audio Blob without decoding it', async () => {
+  const size=1024**3, duration=6000;
+  class LargeFile extends File {
+    get size(){return size;}
+    async arrayBuffer(){assert.fail('source import must not read whole audio');}
+  }
+  const file=new LargeFile([], 'long.wav', {type:'audio/wav'});
+  const index=createSourceIndex([
+    {path:'USB/PIONEER/rekordbox/export.pdb',getFile:async()=>new File([pdb],'export.pdb')},
+    {path:'USB'+entry.sourcePath,getFile:async()=>file},
+  ]);
+  const reader={async read(op,data){
+    assert.equal(op,'database');
+    const parsed=parseDeviceDatabase(data.bytes,{sourceId:data.sourceId});
+    return {...parsed,tracks:parsed.tracks.map(track=>({...track,duration,rekordbox:{...track.rekordbox,size}})),
+      entries:parsed.entries.map(item=>({...item,analysisPath:null}))};
+  }};
+  const library=await openLibrary();
+  const result=await cacheSourceLibrary({library,index,reader,candidate:databaseCandidates(index)[0]});
+  assert.equal(result.copied,1);assert.equal(result.missing,0);
+  const [track]=await library.getTracks();
+  assert.equal(track.duration,duration);assert.equal(track.audioMissing,false);
+  assert.equal((await library.getAudio(track.id)).size,size);
+});
 function setup({audio=true,analysis=true,size=882044,extensions=['DAT','EXT']}={}) {
   const calls={database:0,analysis:0,audioBytes:0};
   const items=[{path:'USB/PIONEER/rekordbox/export.pdb',getFile:async()=>new File([pdb],'export.pdb',{lastModified:1})}];
@@ -69,6 +94,17 @@ test('size mismatch never marks a missing source as playable and cancellation ke
   const library2=await openLibrary(),controller=new AbortController();
   await assert.rejects(cacheSourceLibrary({library:library2,...setup(),signal:controller.signal,onMetadata:()=>controller.abort()}),{name:'AbortError'});
   assert.equal((await library2.getTracks()).length,1);assert.equal((await library2.getSources()).length,1);assert.equal((await library2.getTracks())[0].audioMissing,true);
+});
+
+test('canceling a source while its audio is being saved leaves the track unlinked',async()=>{
+  const library=await openLibrary(),controller=new AbortController(),putTrack=library.putTrack.bind(library);
+  library.putTrack=async(track,blob,options)=>{
+    if(blob){controller.abort();options?.signal?.throwIfAborted();}
+    return putTrack(track,blob);
+  };
+  await assert.rejects(cacheSourceLibrary({library,...setup({analysis:false}),signal:controller.signal}),{name:'AbortError'});
+  const [track]=await library.getTracks();
+  assert.equal(track.audioMissing,true);assert.equal(await library.getAudio(track.id),null);
 });
 
 test('removing a source reference leaves saved tracks and audio intact',async()=>{

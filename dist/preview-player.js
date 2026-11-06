@@ -1,12 +1,16 @@
 /** A single library audition, independent of the DJ decks and mixer. */
+import {openAudioFile} from './audio-resource.js?v=15d483d12b5c45ed';
+import {PcmFileSource, isPcmFile} from './pcm-file-source.js?v=15d483d12b5c45ed';
+
 export class PreviewPlayer {
-  constructor({getAudio, getBuffer = null, onChange = () => {}, createContext = () => {
+  constructor({getAudio, getBuffer = null, openAudio = openAudioFile, onChange = () => {}, createContext = () => {
     const AudioContextClass = globalThis.AudioContext || globalThis.webkitAudioContext;
     if (!AudioContextClass) throw new Error('このブラウザーは音声処理に対応していません。');
     return new AudioContextClass({latencyHint:'interactive'});
   }} = {}) {
     this.getAudio = getAudio;
     this.getBuffer = getBuffer;
+    this.openAudio = openAudio;
     this.onChange = onChange;
     this.createContext = createContext;
     this.context = null;
@@ -29,7 +33,8 @@ export class PreviewPlayer {
   }
 
   getState() {
-    const position = this.playing ? this.position + (this.context.currentTime - this.startedAt) * this.rate : this.position;
+    const position = this.playing && this.source instanceof PcmFileSource ? this.source.position
+      : this.playing ? this.position + (this.context.currentTime - this.startedAt) * this.rate : this.position;
     return {trackId:this.trackId, loading:this.loading, playing:this.playing,
       position:Math.max(0, Math.min(this.duration, position)), duration:this.duration, error:this.error,
       rate:this.rate, eq:{...this.eq}};
@@ -76,8 +81,8 @@ export class PreviewPlayer {
   }
 
   _start(command) {
-    const source = this.context.createBufferSource();
-    source.buffer = this.buffer;
+    const source = isPcmFile(this.buffer) ? new PcmFileSource(this.context, this.buffer) : this.context.createBufferSource();
+    if (!isPcmFile(this.buffer)) source.buffer = this.buffer;
     source.playbackRate.value = this.rate;
     source.connect(this.eqNodes.low);
     source.onended = () => {
@@ -91,8 +96,15 @@ export class PreviewPlayer {
     };
     this.source = source;
     this.startedAt = this.context.currentTime;
-    source.start(0, this.position);
+    source.onerror = error => {
+      if (this.source !== source || this.command !== command || this.disposed) return;
+      this.position = this.getState().position;
+      this._disconnect(); this.loading = false;
+      this.error = error?.message || '音源を読み取れませんでした。'; this._notify();
+    };
+    const started = source.start(0, this.position);
     this.playing = true;
+    if (started?.catch) return started.catch(error => {source.onerror(error);});
   }
 
   async toggle(trackId) {
@@ -135,25 +147,23 @@ export class PreviewPlayer {
           // avoids decoding after its sole consumer has stopped.
           if (!this.getBuffer && !current()) return null;
           if (!blob) throw new Error('元の音源を読み込めません。曲を追加し直してください。');
-          if (blob.size > 80 * 1024 * 1024) throw new Error('1曲80 MB以内の音源を選んでください。');
-          const bytes = await blob.arrayBuffer();
-          if (!this.getBuffer && !current()) return null;
-          const buffer = await context.decodeAudioData(bytes);
-          if (!Number.isFinite(buffer?.duration) || buffer.duration <= 0 || buffer.duration > 20 * 60) {
-            throw new Error('20分以内の再生できる音源を選んでください。');
+          const buffer = await this.openAudio(blob, context);
+          if (!Number.isFinite(buffer?.duration) || buffer.duration <= 0) {
+            throw new Error('再生できる音源を選んでください。');
           }
           return buffer;
         };
         const buffer = this.getBuffer ? await this.getBuffer(trackId, decode) : await decode();
         if (!current()) return;
-        if (!Number.isFinite(buffer?.duration) || buffer.duration <= 0 || buffer.duration > 20 * 60) {
-          throw new Error('20分以内の再生できる音源を選んでください。');
+        if (!Number.isFinite(buffer?.duration) || buffer.duration <= 0) {
+          throw new Error('再生できる音源を選んでください。');
         }
         this.buffer = buffer;
         this.duration = buffer.duration;
       }
       if (this.position >= this.duration) this.position = 0;
-      this._start(command);
+      await this._start(command);
+      if (!current()) return;
       this.loading = false;
       this._notify();
     } catch (error) {

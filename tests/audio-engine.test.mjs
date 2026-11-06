@@ -34,7 +34,7 @@ class Worklet extends Node {
 }
 class Context {
   constructor() {
-    this.currentTime = 0; this.state = 'suspended'; this.destination = new Node();
+    this.currentTime = 0; this.sampleRate = 48000; this.state = 'suspended'; this.destination = new Node();
     this.audioWorklet = {addModule: async url => {if (this.failKeyLock && String(url).includes('soundtouch-processor')) throw new Error('unavailable');}};
   }
   createGain() {return new Node();} createBiquadFilter() {return new Node();}
@@ -313,3 +313,54 @@ for (const mode of ['paused', 'playing', 'pending-play', 'scratch', 'pending-scr
     } finally {engine.dispose(); Worklet.autoReady = true;}
   });
 }
+
+test('long file-backed decks keep reading bounded through seek, loop, tempo, scratch and unload', async () => {
+  const reads = [], engine = new AudioEngine();
+  const resource = {kind: 'pcm-file', length: 300_000_000, sampleRate: 48000, numberOfChannels: 2, duration: 6250,
+    async readFrames(start, count) {reads.push({start, count}); return [new Float32Array(count), new Float32Array(count)];}};
+  try {
+    engine.load('a', resource); await engine.play('a');
+    assert.equal(engine.getState('a').duration, 6250);
+    assert.equal(reads.length, 0, 'loading must not copy a whole track or scratch buffer');
+    const first = engine.decks.a.source;
+    first.node.port.onmessage({data: {type: 'request', index: 0, generation: 1, wanted: [0]}}); await flush();
+    assert.deepEqual(reads, [{start: 0, count: 32768}]);
+    engine.context.currentTime = 300;
+    assert.equal(engine.getState('a').position, 0, 'the audio thread, not wall time, owns the streamed playhead');
+    first.node.port.onmessage({data: {type: 'position', position: 4.5}});
+    engine.pause('a'); assert.equal(engine.getState('a').position, 4.5);
+    engine.seek('a', 4000); engine.setLoop('a', 4000, 4002); await engine.play('a');
+    assert.equal(engine.decks.a.source.loopStart, 4000);
+    assert.equal(engine.decks.a.source.loopEnd, 4002);
+    engine.setRate('a', 1.25); await flush();
+    assert.equal(engine.decks.a.source.playbackRate.value, 1.25);
+    assert.ok(engine.decks.a.keyLockNode, 'streamed PCM keeps the KEY LOCK signal path');
+    await engine.beginScratch('a'); engine.scratchTo('a', 4001, 100);
+    const scratch = engine.decks.a.scratch.node;
+    assert.equal(engine.getState('a').scratching, true);
+    assert.equal(scratch.resource, resource);
+    assert.ok(scratch.node.messages.some(message => message.type === 'target' && message.position === 4001));
+    await engine.endScratch('a');
+    assert.equal(engine.getState('a').position, 4001);
+    assert.equal(engine.getState('a').playing, true);
+    engine.setCue('a', 3000); engine.jumpCue('a');
+    assert.equal(engine.getState('a').position, 3000); assert.equal(engine.getState('a').playing, false);
+    engine.unload('a'); assert.equal(engine.getState('a').loaded, false); assert.equal(scratch.disposed, true);
+    assert.equal(reads.length, 1);
+  } finally {engine.dispose();}
+});
+
+test('file read failures stop the deck and stale reads cannot restore an unloaded track', async () => {
+  const statuses = [], engine = new AudioEngine({onStatus: status => statuses.push(status)});
+  const resource = {kind: 'pcm-file', length: 300_000_000, sampleRate: 48000, numberOfChannels: 2, duration: 6250,
+    async readFrames() {throw new Error('test file unavailable');}};
+  try {
+    engine.load('a', resource); await engine.play('a');
+    engine.decks.a.source.node.port.onmessage({data: {type: 'request', index: 0, generation: 1, wanted: [0]}});
+    await flush();
+    assert.equal(engine.getState('a').playing, false);
+    assert.match(statuses.at(-1).message, /test file unavailable/);
+    const pending = engine.play('a'); engine.unload('a'); await pending;
+    assert.equal(engine.getState('a').loaded, false); assert.equal(engine.decks.a.source, null);
+  } finally {engine.dispose();}
+});
