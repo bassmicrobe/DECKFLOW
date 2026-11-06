@@ -1,0 +1,128 @@
+Imported 1 GiB audio { importMs: 2289.353541 }
+Removed original file; checking persisted playback
+Persisted preview played after reload
+Deck playing; waiting for full detail waveform
+Full detail waveform persisted {
+  sourceLength: 268435445,
+  frameCount: 300000,
+  duration: 5592.405104166667
+}
+Checking transport output and controls
+Direct transport: getting resource
+Direct transport: playing
+Direct transport: scratch started
+{"fixture":{"bytes":1073741824,"duration":5592.405104166667,"sampleRate":48000,"channels":2},"importMs":2289.353541,"savedBpm":120,"transport":{"kind":"pcm-file","peak":0.511444091796875,"at":2574,"loop":{"loaded":true,"playing":true,"position":2574.6,"duration":5592.405104166667,"rate":1,"volume":0.85,"cue":0,"loop":{"start":2574,"end":2575},"scratching":false,"buffering":false,"keyLock":true,"keyLockRequested":true,"keyLockAvailable":true,"keyLockError":null},"rate":1.1,"scratch":{"loaded":true,"playing":true,"position":2574.578533331553,"duration":5592.405104166667,"rate":1.1,"volume":0.85,"cue":0,"loop":null,"scratching":false,"buffering":false,"keyLock":true,"keyLockRequested":true,"keyLockAvailable":true,"keyLockError":null},"dual":{"a":{"loaded":true,"playing":true,"position":2575.341199994087,"duration":5592.405104166667,"rate":1.1,"volume":0.85,"cue":0,"loop":null,"scratching":false,"buffering":false,"keyLock":true,"keyLockRequested":true,"keyLockAvailable":true,"keyLockError":null},"b":{"loaded":true,"playing":true,"position":5552.693333333334,"duration":5592.405104166667,"rate":1,"volume":0.85,"cue":0,"loop":null,"scratching":false,"buffering":false,"keyLock":true,"keyLockRequested":true,"keyLockAvailable":true,"keyLockError":null}},"tail":5552,"empty":{"loaded":false,"playing":false,"position":0,"duration":0,"rate":1.1,"volume":0.85,"cue":0,"loop":null,"scratching":false,"buffering":false,"keyLock":true,"keyLockRequested":true,"keyLockAvailable":true,"keyLockError":null},"statuses":[]}}
+Checking cached offline reload
+{
+  "browser": "156.0.8078.80",
+  "fixture": {
+    "bytes": 1073741824,
+    "duration": 5592.405104166667,
+    "sampleRate": 48000,
+    "channels": 2
+  },
+  "importMs": 2289.353541,
+  "savedBpm": 120,
+  "directFullFileDecodes": [],
+  "waveform": {
+    "sourceLength": 268435445,
+    "frameCount": 300000,
+    "duration": 5592.405104166667
+  },
+  "transport": {
+    "kind": "pcm-file",
+    "peak": 0.511444091796875,
+    "at": 2574,
+    "loop": {
+      "loaded": true,
+      "playing": true,
+      "position": 2574.6,
+      "duration": 5592.405104166667,
+      "rate": 1,
+      "volume": 0.85,
+      "cue": 0,
+      "loop": {
+        "start": 2574,
+        "end": 2575
+      },
+      "scratching": false,
+      "buffering": false,
+      "keyLock": true,
+      "keyLockRequested": true,
+      "keyLockAvailable": true,
+      "keyLockError": null
+    },
+    "rate": 1.1,
+    "scratch": {
+      "loaded": true,
+      "playing": true,
+      "position": 2574.578533331553,
+      "duration": 5592.405104166667,
+      "rate": 1.1,
+      "volume": 0.85,
+      "cue": 0,
+      "loop": null,
+      "scratching": false,
+      "buffering": false,
+      "keyLock": true,
+      "keyLockRequested": true,
+      "keyLockAvailable": true,
+      "keyLockError": null
+    },
+    "dual": {
+      "a": {
+        "loaded": true,
+        "playing": true,
+        "position": 2575.341199994087,
+        "duration": 5592.405104166667,
+        "rate": 1.1,
+        "volume": 0.85,
+        "cue": 0,
+        "loop": null,
+        "scratching": false,
+        "buffering": false,
+        "keyLock": true,
+        "keyLockRequested": true,
+        "keyLockAvailable": true,
+        "keyLockError": null
+      },
+      "b": {
+        "loaded": true,
+        "playing": true,
+        "position": 5552.693333333334,
+        "duration": 5592.405104166667,
+        "rate": 1,
+        "volume": 0.85,
+        "cue": 0,
+        "loop": null,
+        "scratching": false,
+        "buffering": false,
+        "keyLock": true,
+        "keyLockRequested": true,
+        "keyLockAvailable": true,
+        "keyLockError": null
+      }
+    },
+    "tail": 5552,
+    "empty": {
+      "loaded": false,
+      "playing": false,
+      "position": 0,
+      "duration": 0,
+      "rate": 1.1,
+      "volume": 0.85,
+      "cue": 0,
+      "loop": null,
+      "scratching": false,
+      "buffering": false,
+      "keyLock": true,
+      "keyLockRequested": true,
+      "keyLockAvailable": true,
+      "keyLockError": null
+    },
+    "statuses": []
+  },
+  "offlineReloadAndPlayback": true,
+  "jsHeapUsedBytes": 11118404,
+  "pageErrors": []
+}

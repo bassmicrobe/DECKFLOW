@@ -1,4 +1,5 @@
-import {normalizeRekordboxMetadata, normalizeFolderPath, parseRekordboxLocation} from './rekordbox-model.js?v=97faa0ed72231add';
+import {normalizeRekordboxMetadata, normalizeFolderPath, parseRekordboxLocation} from './rekordbox-model.js?v=15d483d12b5c45ed';
+import {withOwnedAudio, readStoredAudio, deleteAudioChunks} from './audio-chunk-store.js?v=15d483d12b5c45ed';
 /**
  * DECKFLOW local library. Metadata and encoded audio live in separate stores,
  * so listing a large library does not read every audio Blob into memory.
@@ -208,6 +209,20 @@ function storageError(error) {
     : '端末のライブラリを読み書きできませんでした。ページを再読み込みして、保存領域の設定を確認してください。', {cause: error});
 }
 
+function readTrackWithAudio(transaction, id, done) {
+  const track = transaction.objectStore('tracks').get(id), audio = transaction.objectStore('audio').get(id);
+  let trackReady = false, audioReady = false;
+  const finish = () => { if (trackReady && audioReady) done({track: track.result, audio: audio.result}); };
+  track.onsuccess = () => { trackReady = true; finish(); };
+  audio.onsuccess = () => { audioReady = true; finish(); };
+}
+
+function audioTrackIdentity({track, audio}) {
+  // Every newly owned audio copy has a distinct descriptor prefix, including
+  // replacements whose filename, size and track metadata happen to be equal.
+  return JSON.stringify({track, audio: audio instanceof Blob ? {legacy: true, size: audio.size, type: audio.type} : audio});
+}
+
 class MemoryLibrary {
   constructor() {
     this.persistent = false;
@@ -338,15 +353,30 @@ class IndexedLibrary {
     });
   }
 
-  async putTrack(metadata, blob) {
+  async putTrack(metadata, blob, options = {}) {
     const track = normalizeTrack(metadata);
     checkBlob(blob);
-    return this._transaction(blob === undefined ? ['tracks'] : ['tracks', 'audio'], 'readwrite', (transaction, _, fail) => {
+    const expected = blob === undefined ? null : await this._transaction(['tracks', 'audio'], 'readonly', (transaction, done) => {
+      readTrackWithAudio(transaction, track.id, value => done(audioTrackIdentity(value)));
+    });
+    const commit = (audio, stageKey) => this._transaction(audio === undefined ? ['tracks'] : ['tracks', 'audio'], 'readwrite', (transaction, _, fail) => {
       const tracks = transaction.objectStore('tracks');
       const write = () => {
         try {
-          tracks.put(track);
-          if (blob !== undefined) transaction.objectStore('audio').put(blob, track.id);
+          if (audio === undefined) { tracks.put(track); return; }
+          readTrackWithAudio(transaction, track.id, previous => {
+            try {
+              if (options.signal?.aborted) throw new Error('音源の保存を中止しました。変更は保存していません。');
+              if (audioTrackIdentity(previous) !== expected) {
+                throw new Error('保存中に別の画面でこの曲が変更または削除されました。画面を更新して再試行してください。変更は保存していません。');
+              }
+              const store = transaction.objectStore('audio');
+              deleteAudioChunks(store, previous.audio);
+              tracks.put(track);
+              store.put(audio, track.id);
+              store.delete(stageKey);
+            } catch (error) { fail(error); }
+          });
         } catch (error) { fail(error); }
       };
       // The count and insert share one write transaction, including across tabs.
@@ -357,6 +387,8 @@ class IndexedLibrary {
         existing.onsuccess = () => existing.result === undefined ? fail(trackLimitError()) : write();
       };
     });
+    return blob === undefined ? commit() : withOwnedAudio(blob, this._transaction.bind(this), commit,
+      {signal: options.signal, databaseName: this.database.name});
   }
 
   async updateTrackDetails(id, fields, playlistId = null) {
@@ -431,11 +463,7 @@ class IndexedLibrary {
     identifier(id, '曲ID');
     return this._transaction(['audio'], 'readonly', (transaction, done, fail) => {
       const request = transaction.objectStore('audio').get(id);
-      request.onsuccess = () => {
-        if (request.result !== undefined && !(request.result instanceof Blob)) {
-          fail(new Error('保存済み音源の形式が正しくありません。元の音源を追加し直してください。'));
-        } else done(request.result ?? null);
-      };
+      request.onsuccess = () => readStoredAudio(transaction.objectStore('audio'), request.result, done, fail);
     });
   }
 
@@ -443,7 +471,11 @@ class IndexedLibrary {
     identifier(id, '曲ID');
     return this._transaction(['tracks', 'audio', 'config'], 'readwrite', (transaction, _, fail) => {
       transaction.objectStore('tracks').delete(id);
-      transaction.objectStore('audio').delete(id);
+      const audio = transaction.objectStore('audio'), previous = audio.get(id);
+      previous.onsuccess = () => {
+        try { deleteAudioChunks(audio, previous.result); audio.delete(id); }
+        catch (error) { fail(error); }
+      };
       const config = transaction.objectStore('config');
       const request = config.get('playlists');
       request.onsuccess = () => {

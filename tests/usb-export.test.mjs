@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp, mkdir, writeFile, readFile, rm, lstat, symlink} from 'node:fs/promises';
+import {mkdtemp, mkdir, writeFile, readFile, rm, lstat, symlink, open} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {createHash} from 'node:crypto';
 import {validateUsbLibrary, buildRekordboxXml, encodeRekordboxLocation} from '../dist/usb-export.js';
 import {exportUsb, resolveAudioFiles, verifyCueMetadata} from '../tools/export-usb.mjs';
 import {inspectPdb, inspectAnalysis, safeExportPath, readExport} from '../tools/usb-inspect.mjs';
+import {parseRekordboxDatabase} from '../dist/rekordbox-sqlite.js';
 
 const track = (id='t1', overrides={}) => ({id, title:'曲 & <test> "A"', artist:'DJ 日本語', bpm:128,
   duration:5, beatOffset:.125, cue:.5, hotcues:[.125,1.2,2.4,3.6], filename:'日本語 & 128.wav', ...overrides});
@@ -39,6 +40,18 @@ test('rekordbox XML preserves titles, cues, BPM/grid and playlist order with esc
   assert.match(result.xml,/DECKFLOW ALL/);
   assert.match(result.xml,/DateAdded="2026-11-06"/);
   assert.ok(!result.xml.includes('file://localhost/Music/日本語'));
+});
+
+test('XML passes measured source size, sample rate and bitrate to the device writer', () => {
+  const metadata = new Map([['t1', {size:1073741864, sampleRate:96000, bitRate:4608}]]);
+  const result = buildRekordboxXml(library(), new Map([['t1','/Music/source.wav']]), metadata);
+  assert.match(result.xml, /Size="1073741864"/);
+  assert.match(result.xml, /SampleRate="96000"/);
+  assert.match(result.xml, /BitRate="4608"/);
+  for (const invalid of [{size:-1}, {size:2 ** 32}, {sampleRate:NaN}, {bitRate:-1}]) {
+    assert.throws(() => buildRekordboxXml(library(), new Map([['t1','/Music/source.wav']]),
+      new Map([['t1', {...metadata.get('t1'), ...invalid}]])), /音源/);
+  }
 });
 
 test('unsupported library data is rejected before a writer can run', () => {
@@ -99,6 +112,16 @@ test('real baken CDJ-3000 export: PDB/ANLZ/cues/playlist order and audio hashes 
     assert.equal(report.tracks[0].sha256,hash(aAudio)); assert.equal(report.tracks[1].sha256,hash(bAudio));
     assert.equal(hash(await readFile(join(audio,a.filename))),hash(aAudio),'source audio stays unchanged');
     const device=await readExport(out);
+    const oneLibrary = await parseRekordboxDatabase(new Uint8Array(await readFile(join(out, 'PIONEER/rekordbox/exportLibrary.db'))), {kind:'device'});
+    assert.deepEqual(report.deviceFormats, ['Device Library','OneLibrary']);
+    assert.equal(oneLibrary.tracks.length, 2);
+    assert.deepEqual(oneLibrary.tracks.map(track => track.title), [a.title,b.title]);
+    assert.deepEqual(oneLibrary.tracks.map(track => track.rekordbox.size), [aAudio.length,bAudio.length]);
+    assert.ok(oneLibrary.playlists.some(list => list.name === '空のプレイリスト' && list.trackIds.length === 0));
+    assert.equal(device.tracks[0].size, aAudio.length);
+    assert.equal(device.tracks[0].sampleRate, 44100);
+    assert.equal(device.tracks[0].bitRate, 1411);
+    assert.equal(device.tracks[0].duration, 5);
     assert.equal(device.tracks[0].dat.beats[0].time,.125);
     assert.ok(device.tracks[0].ext.cues.some(cue=>cue.number===4&&cue.time===3.6));
     const playlist=device.playlists.find(item=>item.name==='夕方 & "mix"');
@@ -111,6 +134,47 @@ test('real baken CDJ-3000 export: PDB/ANLZ/cues/playlist order and audio hashes 
     assert.equal(dry.dryRun,true);
     await assert.rejects(lstat(dryOut),{code:'ENOENT'});
   } finally {await rm(dir,{recursive:true,force:true});}
+});
+
+test('real 1 GiB WAV USB export preserves long-track audio, metadata and final cues',
+  {skip:!baken || process.env.DECKFLOW_LARGE_AUDIO_TEST !== '1',timeout:300000}, async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'deckflow-large-usb-'));
+  try {
+    const audio = join(dir, 'audio'); await mkdir(audio);
+    const sampleRate = 96000, blockAlign = 6, frames = Math.floor(1024 ** 3 / blockAlign);
+    const dataBytes = frames * blockAlign, duration = frames / sampleRate;
+    const filename = 'Synthetic 1GiB 24-bit 96kHz.wav', path = join(audio, filename);
+    const header = Buffer.alloc(44);
+    header.write('RIFF'); header.writeUInt32LE(36 + dataBytes, 4); header.write('WAVEfmt ', 8);
+    header.writeUInt32LE(16, 16); header.writeUInt16LE(1, 20); header.writeUInt16LE(2, 22);
+    header.writeUInt32LE(sampleRate, 24); header.writeUInt32LE(sampleRate * blockAlign, 28);
+    header.writeUInt16LE(blockAlign, 32); header.writeUInt16LE(24, 34);
+    header.write('data', 36); header.writeUInt32LE(dataBytes, 40);
+    const file = await open(path, 'wx');
+    try {
+      await file.write(header, 0, header.length, 0);
+      await file.truncate(44 + dataBytes);
+      // Distinct beginning/end samples catch a truncated or zero-filled copy.
+      await file.write(Buffer.from([0,0,64,0,0,64]), 0, blockAlign, 44);
+      await file.write(Buffer.from([0,0,192,0,0,192]), 0, blockAlign, 44 + dataBytes - blockAlign);
+    } finally { await file.close(); }
+    const source = track('large', {filename, duration, bpm:120, cue:duration - 2,
+      hotcues:[null,null,null,null,null,null,null,duration - 1], beatOffset:0});
+    const json = join(dir, 'library.json'); await writeFile(json, JSON.stringify(library([source])));
+    const out = join(dir, 'USB');
+    const report = await exportUsb({libraryPath:json,audioDir:audio,out,bakenPath:baken,quiet:true});
+    assert.equal(report.tracks.length, 1); assert.equal(report.hardwareVerified, false);
+    const device = (await readExport(out)).tracks[0];
+    const oneLibrary = await parseRekordboxDatabase(new Uint8Array(await readFile(join(out, 'PIONEER/rekordbox/exportLibrary.db'))), {kind:'device'});
+    assert.equal(oneLibrary.tracks[0].rekordbox.size, 44 + dataBytes);
+    assert.equal(oneLibrary.tracks[0].duration, Math.ceil(duration));
+    assert.equal(device.size, 44 + dataBytes);
+    assert.equal(device.sampleRate, sampleRate); assert.equal(device.bitRate, 4608);
+    assert.equal(device.duration, Math.ceil(duration));
+    assert.ok(device.ext.detailedCues.some(cue => cue.number === 8 && Math.abs(cue.time - (duration - 1)) < .003));
+    assert.equal((await lstat(device.audio)).size, 44 + dataBytes);
+    assert.equal(report.tracks[0].sha256.length, 64);
+  } finally { await rm(dir, {recursive:true,force:true}); }
 });
 
 test('XML export keeps variable TEMPO, eight cues, named colored loops and nested playlist paths', () => {

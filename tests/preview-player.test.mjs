@@ -6,6 +6,7 @@ import {AudioBufferCache} from '../dist/audio-buffer-cache.js';
 const deferred = () => { let resolve, reject; const promise = new Promise((yes,no) => {resolve=yes;reject=no;}); return {promise,resolve,reject}; };
 const flush = () => new Promise(resolve => setImmediate(resolve));
 const blob = id => ({size:12,arrayBuffer:async()=>id});
+const openAudio = async (blob, context) => context.decodeAudioData(await blob.arrayBuffer());
 class Node {
   constructor() { for(const key of ['gain','frequency','Q','playbackRate','threshold','knee','ratio','attack','release'])this[key]={value:1}; this.connections=[]; }
   connect(node) { this.connections.push(node); return node; }
@@ -14,7 +15,7 @@ class Node {
   stop() { this.stopped=true; }
 }
 class Context {
-  constructor() { this.currentTime=0; this.state='suspended'; this.destination=new Node(); this.sources=[]; this.resumeCalls=0; this.decoded=[]; }
+  constructor() { this.currentTime=0; this.sampleRate=48000; this.state='suspended'; this.destination=new Node(); this.sources=[]; this.resumeCalls=0; this.decoded=[]; }
   createGain() { return new Node(); }
   createBiquadFilter() { return new Node(); }
   createDynamicsCompressor() { return new Node(); }
@@ -25,7 +26,7 @@ class Context {
 }
 function setup(getAudio=async id=>blob(id)) {
   const context=new Context(), states=[];
-  const player=new PreviewPlayer({getAudio,createContext:()=>context,onChange:state=>states.push(state)});
+  const player=new PreviewPlayer({getAudio,openAudio,createContext:()=>context,onChange:state=>states.push(state)});
   return {context,states,player};
 }
 
@@ -251,7 +252,7 @@ test('shared buffer lookup happens after gesture resume and replay after stop re
   const context = new Context(), cache = new AudioBufferCache();
   let lookups = 0, reads = 0;
   context.decodeAudioData = async id => {context.decoded.push(id); return {id, duration:60, length:1024, numberOfChannels:2};};
-  const player = new PreviewPlayer({createContext:()=>context, getAudio:async id=>{reads++; return blob(id);},
+  const player = new PreviewPlayer({openAudio,createContext:()=>context, getAudio:async id=>{reads++; return blob(id);},
     getBuffer:(id, decode)=>{lookups++; assert.equal(context.state, 'running'); return cache.get(id, decode);}});
   const first = player.toggle('A');
   assert.equal(context.resumeCalls, 1);
@@ -270,7 +271,7 @@ test('cancelling an audition does not cancel a shared decode or allow stale auto
   for (const cancel of ['stop', 'clear', 'dispose']) {
     const context = new Context(), cache = new AudioBufferCache(), wait = deferred();
     context.decodeAudioData = async id => {context.decoded.push(id); return {id, duration:60, length:1024, numberOfChannels:2};};
-    const player = new PreviewPlayer({createContext:()=>context, getAudio:()=>wait.promise,
+    const player = new PreviewPlayer({openAudio,createContext:()=>context, getAudio:()=>wait.promise,
       getBuffer:(id, decode)=>cache.get(id, decode)});
     const audition = player.toggle('A');
     await flush();
@@ -296,4 +297,38 @@ test('a stale shared-cache rejection does not affect a later successful audition
   assert.equal(player.getState().trackId, 'B');
   assert.equal(player.getState().playing, true);
   assert.equal(player.getState().error, null);
+});
+
+test('long file-backed preview uses bounded pages and preserves seek, tempo and cancellation', async () => {
+  class FileWorklet extends Node {
+    constructor() {
+      super(); this.messages = [];
+      this.port = {onmessage: null, close() {}, postMessage: message => this.messages.push(message)};
+    }
+  }
+  const previous = globalThis.AudioWorkletNode;
+  globalThis.AudioWorkletNode = FileWorklet;
+  const context = new Context(); context.audioWorklet = {addModule: async () => {}};
+  const reads = [];
+  const resource = {kind: 'pcm-file', length: 300_000_000, sampleRate: 48000, duration: 6250, numberOfChannels: 2,
+    async readFrames(start, count) {reads.push({start, count}); return [new Float32Array(count), new Float32Array(count)];}};
+  const player = new PreviewPlayer({createContext: () => context, getBuffer: async () => resource});
+  try {
+    await player.toggle('long'); assert.equal(player.getState().playing, true);
+    assert.equal(player.getState().duration, 6250); assert.equal(reads.length, 0);
+    const first = player.source;
+    first.node.port.onmessage({data: {type: 'request', index: 0, generation: 1, wanted: [0]}}); await flush();
+    assert.deepEqual(reads, [{start: 0, count: 32768}]);
+    first.node.port.onmessage({data: {type: 'position', position: 100}});
+    context.currentTime = 900; assert.equal(player.getState().position, 100);
+    player.setRate(1.5); assert.equal(player.source.playbackRate.value, 1.5);
+    player.seek(5000); await flush();
+    assert.equal(first.disposed, true); assert.equal(player.getState().position, 5000);
+    player.stop(); assert.equal(player.getState().playing, false); assert.equal(player.buffer, null);
+    await player.toggle('long'); assert.equal(player.getState().position, 0);
+    player.clear(); assert.equal(player.getState().trackId, null);
+  } finally {
+    player.dispose();
+    if (previous === undefined) delete globalThis.AudioWorkletNode; else globalThis.AudioWorkletNode = previous;
+  }
 });

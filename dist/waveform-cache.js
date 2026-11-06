@@ -1,4 +1,4 @@
-import {DEFAULT_WAVEFORM_FPS, MAX_WAVEFORM_FRAMES, WAVEFORM_VERSION, validateWaveform, waveformBytes, waveformDimensions} from './waveform-data.js?v=97faa0ed72231add';
+import {DEFAULT_WAVEFORM_FPS, MAX_WAVEFORM_FRAMES, WAVEFORM_VERSION, validateWaveform, waveformBytes, waveformDimensions} from './waveform-data.js?v=15d483d12b5c45ed';
 
 const DEFAULT_BYTES = 16 * 1024 * 1024;
 const DISK_BYTES = 32 * 1024 * 1024;
@@ -15,7 +15,7 @@ export class WaveformCache {
     persistentBytes = DISK_BYTES, persistentEntries = 128, framesPerSecond = DEFAULT_WAVEFORM_FPS,
     maxFrames = MAX_WAVEFORM_FRAMES, chunkSamples = 32768, timeoutMs = 120000,
     indexedDB = globalThis.indexedDB,
-    workerFactory = () => new Worker(new URL('./waveform-worker.js?v=97faa0ed72231add', import.meta.url), {type: 'module'}),
+    workerFactory = () => new Worker(new URL('./waveform-worker.js?v=15d483d12b5c45ed', import.meta.url), {type: 'module'}),
   } = {}) {
     this.maxBytes = natural(maxBytes, 'RAM limit');
     this.maxEntries = natural(maxEntries, 'RAM entries');
@@ -46,7 +46,8 @@ export class WaveformCache {
     if (this.disposed) return Promise.reject(abortError());
     let dimensions;
     try {
-      if (typeof key !== 'string' || !key || key.length > 4096 || typeof buffer?.getChannelData !== 'function') throw new TypeError('Waveform cache key or audio is invalid.');
+      if (typeof key !== 'string' || !key || key.length > 4096 ||
+          (typeof buffer?.getChannelData !== 'function' && !(buffer?.kind === 'pcm-file' && typeof buffer.readFrames === 'function'))) throw new TypeError('Waveform cache key or audio is invalid.');
       dimensions = waveformDimensions(buffer);
     } catch (error) { return Promise.reject(error); }
     const signature = JSON.stringify([WAVEFORM_VERSION, dimensions.sourceLength, dimensions.sampleRate, dimensions.channels, this.options.framesPerSecond, this.options.maxFrames]);
@@ -139,22 +140,34 @@ export class WaveformCache {
       };
       try {
         worker = this.worker ??= this.workerFactory();
-        const channels = Array.from({length: dimensions.channels}, (_, i) => buffer.getChannelData(i));
-        if (!channels.every(channel => channel instanceof Float32Array && channel.length === dimensions.sourceLength)) throw new TypeError('Decoded audio channels are invalid.');
-        const chunkLength = Math.min(this.chunkSamples, Math.floor(CHUNK_BYTES / 4 / dimensions.channels));
-        const sendChunk = () => {
+        const fileBacked = buffer.kind === 'pcm-file' && typeof buffer.readFrames === 'function';
+        const channels = fileBacked ? null : Array.from({length: dimensions.channels}, (_, i) => buffer.getChannelData(i));
+        if (channels && !channels.every(channel => channel instanceof Float32Array && channel.length === dimensions.sourceLength)) throw new TypeError('Decoded audio channels are invalid.');
+        const chunkLength = Math.min(this.chunkSamples, Math.floor(CHUNK_BYTES / 4 / dimensions.channels),
+          fileBacked ? (buffer.maxReadFrames ?? this.chunkSamples) : this.chunkSamples);
+        natural(chunkLength, 'Waveform read size', 1);
+        const armTimeout = () => {
+          clearTimeout(timer);
+          timer = setTimeout(() => finish(new Error('波形の生成に時間がかかっています。')), this.timeoutMs);
+        };
+        const sendChunk = async () => {
+          if (settled) return;
           if (this.disposed) return finish(abortError());
           if (offset >= dimensions.sourceLength) { worker.postMessage({type: 'finish', id}); return; }
           const end = Math.min(dimensions.sourceLength, offset + chunkLength);
           // Copy only this chunk, never detach the live AudioBuffer backing store.
-          const owned = channels.map(channel => channel.slice(offset, end));
+          const owned = fileBacked ? await buffer.readFrames(offset, end - offset) : channels.map(channel => channel.slice(offset, end));
+          if (settled || this.disposed) return;
+          if (!Array.isArray(owned) || owned.length !== dimensions.channels ||
+              !owned.every(channel => channel instanceof Float32Array && channel.length === end - offset)) throw new TypeError('File audio channels are invalid.');
           offset = end;
+          armTimeout();
           worker.postMessage({type: 'chunk', id, channels: owned}, owned.map(channel => channel.buffer));
         };
         worker.onmessage = ({data}) => {
           if (data?.id !== id || settled) return;
           try {
-            if (data.type === 'ready' || data.type === 'ack') sendChunk();
+            if (data.type === 'ready' || data.type === 'ack') { armTimeout(); void sendChunk().catch(error => finish(error)); }
             else if (data.type === 'result') finish(null, validateWaveform(data.waveform));
             else if (data.type === 'error') finish(new Error(data.message || '波形を生成できませんでした。'));
           } catch (error) { finish(error); }
@@ -162,7 +175,7 @@ export class WaveformCache {
         worker.onerror = () => finish(new Error('波形の生成を開始できませんでした。'));
         worker.onmessageerror = () => finish(new Error('波形データを受け取れませんでした。'));
         this.cancelGeneration = () => finish(abortError());
-        timer = setTimeout(() => finish(new Error('波形の生成に時間がかかっています。')), this.timeoutMs);
+        armTimeout();
         worker.postMessage({type: 'start', id, dimensions, options: this.options});
       } catch (error) { finish(error); }
     });
@@ -179,9 +192,15 @@ export class WaveformCache {
   }
   _database() {
     if (!this.indexedDB) return Promise.resolve(null);
-    return this.database ??= new Promise(resolve => {
+    if (this.database) return this.database;
+    const opening = new Promise(resolve => {
       let request, settled = false;
-      const complete = database => { if (settled) { database?.close(); return; } settled = true; clearTimeout(timer); resolve(database); };
+      const complete = database => {
+        if (settled) { database?.close(); return; }
+        settled = true; clearTimeout(timer);
+        if (!database) this.counters.diskErrors++;
+        resolve(database);
+      };
       const timer = setTimeout(() => complete(null), 1500);
       try {
         request = this.indexedDB.open('deckflow-waveform-cache', 1);
@@ -199,6 +218,14 @@ export class WaveformCache {
         request.onerror = request.onblocked = () => complete(null);
       } catch { complete(null); }
     });
+    this.database = opening;
+    // A slow/blocked open only skips this disk operation. Clearing after the
+    // promise resolves also handles synchronous open() throws without a TDZ or
+    // a late callback discarding a newer, successful connection.
+    void opening.then(database => {
+      if (!database && this.database === opening) this.database = undefined;
+    });
+    return opening;
   }
   async _transaction(operation) {
     const database = await this._database();

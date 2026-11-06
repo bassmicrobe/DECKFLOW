@@ -1,5 +1,5 @@
-import {databaseBytes, sourceDigest, sourceFileStamp, normalizeSourcePath} from './library-source.js?v=97faa0ed72231add';
-import {isAudioFile} from './file-drop.js?v=97faa0ed72231add';
+import {databaseBytes, sourceDigest, sourceFileStamp, normalizeSourcePath} from './library-source.js?v=15d483d12b5c45ed';
+import {isAudioFile} from './file-drop.js?v=15d483d12b5c45ed';
 const pause = () => new Promise(resolve=>setTimeout(resolve,0));
 const preparation = track => JSON.stringify({bpm:track.bpm,beatOffset:track.beatOffset||0,cue:track.cue||0,
   hotcues:track.hotcues??Array(8).fill(null),tempos:track.tempos??[],positionMarks:track.positionMarks??[]});
@@ -53,7 +53,7 @@ export async function cacheSourceLibrary({library,index,candidate,sources=[],sou
   // record. null means the track was deleted meanwhile; never resurrect it.
   const persist=async(next,blob,base)=>{
     signal?.throwIfAborted();
-    const stored=saveTrack?await saveTrack(next,blob,base):(await library.putTrack(next,blob),next);
+    const stored=saveTrack?await saveTrack(next,blob,base,{signal}):(await library.putTrack(next,blob,{signal}),next);
     if(stored===null){existing.delete(next.id);return null;}
     const result=stored??next;existing.set(result.id,result);onTrack(result);return result;
   };
@@ -115,7 +115,7 @@ export async function cacheSourceLibrary({library,index,candidate,sources=[],sou
           if (source.audioStamps[track.id] && source.audioStamps[track.id]!==stamp) result.warnings.push(`${track.title}: 元の音源に変更があります。保存済み音源を保持しました。元音源の変更は自動反映しません。`);
           continue;
         }
-        if (!isAudioFile(file) || file.size>80*1024*1024 || track.duration>1200) throw new Error('再生用キャッシュは1曲80 MB・20分まで対応しています。');
+        if (!isAudioFile(file) || !Number.isSafeInteger(file.size) || file.size <= 0) throw new Error('空でない音源ファイルを選んでください。');
         if (track.rekordbox?.size && track.rekordbox.size!==file.size) throw new Error('データベースと音源のサイズが異なります。元の音源を確認してください。');
         track=await persist({...track,audioMissing:false,fingerprint:`${file.name}|${file.size}|${file.lastModified||0}`},file,track);
         if(!track)continue;

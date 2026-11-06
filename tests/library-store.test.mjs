@@ -211,10 +211,15 @@ test('an initial SecurityError uses only explicit volatile storage', async () =>
 
 test('an opened persistent store reports a later quota error instead of switching to volatile storage', async () => {
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'indexedDB');
+  const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  // This deliberately minimal database mock covers quota reporting without
+  // pretending to implement browser Web Locks / cursor-based orphan cleanup.
+  Object.defineProperty(globalThis, 'navigator', {configurable: true, value: undefined});
   const database = {
     transaction() {
       const transaction = {
         objectStore() { return {
+          get() { const request = {}; queueMicrotask(() => { request.onsuccess?.(); queueMicrotask(() => transaction.oncomplete?.()); }); return request; },
           count() { const request = {}; queueMicrotask(() => { request.result = 0; request.onsuccess?.(); }); return request; },
           put() { throw new DOMException('Full', 'QuotaExceededError'); },
         }; },
@@ -240,6 +245,8 @@ test('an opened persistent store reports a later quota error instead of switchin
     assert.equal(store.persistent, false);
     await assert.rejects(store.putTrack(track()), /再読み込み/);
   } finally {
+    if (navigatorDescriptor) Object.defineProperty(globalThis, 'navigator', navigatorDescriptor);
+    else delete globalThis.navigator;
     if (descriptor) Object.defineProperty(globalThis, 'indexedDB', descriptor);
     else delete globalThis.indexedDB;
   }

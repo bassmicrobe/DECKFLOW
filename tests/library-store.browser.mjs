@@ -42,6 +42,175 @@ run.addEventListener('click', async () => {
     check(first.persistent && second.persistent, 'IndexedDBが利用できず一時保存になりました。');
     await first.putTrack(sample(), new Blob(['fixture audio']));
 
+    const audioKeys = () => first._transaction(['audio'], 'readonly', (transaction, done) => {
+      const request = transaction.objectStore('audio').getAllKeys();
+      request.onsuccess = () => done(request.result);
+    });
+
+    await test('音源は1MiB以内で順次コピーされ、再接続後に全バイトを復元', async () => {
+      const bytes = Uint8Array.from({length: 2 * 1024 * 1024 + 7}, (_, index) => index % 251);
+      const reads = [];
+      class ObservedBlob extends Blob {
+        arrayBuffer() { throw new Error('音源全体を一度に読み込んでいます。'); }
+        slice(start, end, type) { reads.push([start, end]); return super.slice(start, end, type); }
+      }
+      await first.putTrack(sample('owned-copy'), new ObservedBlob([bytes], {type: 'audio/wav'}));
+      check(reads.length === 3 && reads.every(([start, end]) => end - start <= 1024 * 1024), '1MiBごとの実データ所有化が行われていません。');
+      const audio = await second.getAudio('owned-copy');
+      equal(audio.type, 'audio/wav', '音源の形式が失われています。');
+      const restored = new Uint8Array(await audio.arrayBuffer());
+      check(restored.length === bytes.length && restored.every((value, index) => value === bytes[index]), '保存した音源のバイト列が異なります。');
+      await first.removeTrack('owned-copy');
+    });
+
+    await test('元音源の途中読み取り失敗では既存曲と音源を保持し、分割データを残さない', async () => {
+      const before = await first.getTracks(), keys = await audioKeys();
+      class FailedBlob extends Blob {
+        slice(start, end) {
+          if (start > 0) throw new DOMException('Synthetic detached source', 'NotReadableError');
+          return super.slice(start, end);
+        }
+      }
+      await rejects(() => first.putTrack({...sample(), title: 'Uncommitted'}, new FailedBlob([new Uint8Array(1024 * 1024 + 1)])), /音源|読み/);
+      equal(await first.getTracks(), before, '元音源の読み取り失敗で曲情報が変わりました。');
+      equal(await audioKeys(), keys, '失敗した分割データが残っています。');
+      equal(await (await first.getAudio('fixture-track')).text(), 'fixture audio', '元音源が失われました。');
+    });
+
+    await test('分割保存と最終確定の容量不足を注入しても旧音源を保持し、一時データを削除', async () => {
+      const before = await first.getTracks(), keys = await audioKeys();
+      const originalPut = IDBObjectStore.prototype.put;
+      for (const failure of ['chunk', 'commit']) {
+        let chunks = 0;
+        IDBObjectStore.prototype.put = function (value) {
+          const target = this.transaction.db.name === databaseName;
+          if (target && this.name === 'audio' && value instanceof Blob) chunks++;
+          if (target && ((failure === 'chunk' && this.name === 'audio' && value instanceof Blob && chunks === 2)
+            || (failure === 'commit' && this.name === 'tracks'))) {
+            throw new DOMException('Injected audio quota failure', 'QuotaExceededError');
+          }
+          return originalPut.apply(this, arguments);
+        };
+        try {
+          await rejects(() => second.putTrack({...sample(), title: 'Uncommitted'}, new Blob([new Uint8Array(1024 * 1024 + 1)])), /保存容量/);
+        } finally { IDBObjectStore.prototype.put = originalPut; }
+        equal(await first.getTracks(), before, '容量不足で曲情報が変わりました。');
+        equal(await audioKeys(), keys, '容量不足で一時データが残りました。');
+        equal(await (await first.getAudio('fixture-track')).text(), 'fixture audio', '容量不足で旧音源が消えました。');
+      }
+    });
+
+    await test('差し替え・削除で旧分割データを除去し、音源なしの編集では音源を保持', async () => {
+      const before = await audioKeys();
+      await first.putTrack(sample('replace-audio'), new Blob([new Uint8Array(1024 * 1024 + 1)]));
+      await first.putTrack(sample('replace-audio'), new Blob(['replacement']));
+      const afterReplacement = await audioKeys();
+      equal(afterReplacement.length - before.length, 2, '旧音源の分割データが残っています。');
+      await first.putTrack({...sample('replace-audio'), title: 'Metadata only'});
+      equal(await audioKeys(), afterReplacement, '音源なしの編集で保存済み音源を変更しました。');
+      equal(await (await second.getAudio('replace-audio')).text(), 'replacement', '差し替えた音源を復元できません。');
+      await first.removeTrack('replace-audio');
+      equal(await audioKeys(), before, '削除した音源の分割データが残っています。');
+    });
+
+    await test('長時間コピー中の別接続からの編集や削除を上書き・復活させない', async () => {
+      const baselineKeys = await audioKeys();
+      for (const operation of ['edit', 'delete', 'audio']) {
+        await first.putTrack(sample('copy-race'), new Blob(['original']));
+        const originalKeys = await audioKeys();
+        class ConcurrentBlob extends Blob {
+          slice(start, end) {
+            const part = super.slice(start, end);
+            return {arrayBuffer: async () => {
+              if (operation === 'edit') await second.putTrack({...sample('copy-race'), title: 'Concurrent edit'});
+              else if (operation === 'audio') await second.putTrack(sample('copy-race'), new Blob(['new audio']));
+              else await second.removeTrack('copy-race');
+              return part.arrayBuffer();
+            }};
+          }
+        }
+        await rejects(() => first.putTrack({...sample('copy-race'), title: 'Stale edit'}, new ConcurrentBlob(['replacement'])), /別の画面|変更|削除/);
+        if (operation === 'edit') {
+          equal((await second.getTracks()).find(item => item.id === 'copy-race').title, 'Concurrent edit', '最新の編集を上書きしました。');
+          equal(await (await second.getAudio('copy-race')).text(), 'original', '競合した音源を公開しました。');
+          equal(await audioKeys(), originalKeys, '競合したコピーが残っています。');
+          await second.removeTrack('copy-race');
+        } else if (operation === 'delete') {
+          check(!(await second.getTracks()).some(item => item.id === 'copy-race'), '削除した曲が復活しました。');
+          equal(await second.getAudio('copy-race'), null, '削除後に音源が復活しました。');
+        } else {
+          equal(await (await second.getAudio('copy-race')).text(), 'new audio', '同じ曲情報のまま差し替えた最新音源を上書きしました。');
+          equal((await audioKeys()).length, originalKeys.length, '競合したコピーが残っています。');
+          await second.removeTrack('copy-race');
+        }
+        equal(await audioKeys(), baselineKeys, '競合したコピーの分割データが残っています。');
+      }
+    });
+
+    await test('保存を中止した場合は既存曲を保持し、一時データを削除', async () => {
+      const before = await first.getTracks(), keys = await audioKeys();
+      const controller = new AbortController();
+      class AbortedBlob extends Blob {
+        slice(start, end) {
+          const part = super.slice(start, end);
+          return {arrayBuffer: async () => { controller.abort(); return part.arrayBuffer(); }};
+        }
+      }
+      await rejects(() => first.putTrack({...sample(), title: 'Uncommitted'}, new AbortedBlob(['replacement']), {signal: controller.signal}), /中止/);
+      equal(await first.getTracks(), before, '中止後に曲情報が変わりました。');
+      equal(await audioKeys(), keys, '中止後に一時データが残っています。');
+    });
+
+    await test('同時コピーの一時データを回収せず、中断したコピーだけ次回保存時に回収', async () => {
+      const before = await audioKeys();
+      let release, entered;
+      const gate = new Promise(resolve => { release = resolve; });
+      const reading = new Promise(resolve => { entered = resolve; });
+      class PausedBlob extends Blob {
+        slice(start, end) {
+          const part = super.slice(start, end);
+          return {arrayBuffer: async () => { entered(); await gate; return part.arrayBuffer(); }};
+        }
+      }
+      const active = first.putTrack(sample('active-copy'), new PausedBlob(['active bytes']));
+      await reading;
+      try { await second.putTrack(sample('parallel-copy'), new Blob(['parallel bytes'])); }
+      finally { release(); }
+      await active;
+      equal(await (await first.getAudio('active-copy')).text(), 'active bytes', '同時コピー中の一時データが削除されました。');
+      equal(await (await second.getAudio('parallel-copy')).text(), 'parallel bytes', '別接続のコピーが失われました。');
+      await first.removeTrack('active-copy');
+      await second.removeTrack('parallel-copy');
+      const token = crypto.randomUUID(), prefix = `@audio/${token}/`;
+      await first._transaction(['audio'], 'readwrite', transaction => {
+        const store = transaction.objectStore('audio');
+        store.put({lockProtected: true, audio: {format: 'deckflow.audio-chunks', version: 1, prefix,
+          chunkSize: 1024 * 1024, count: 1, size: 7, type: ''}}, `@audio-stage/${token}`);
+        store.put(new Blob(['partial']), `${prefix}0`);
+      });
+      await second.putTrack(sample('after-crash'), new Blob(['complete']));
+      await second.removeTrack('after-crash');
+      equal(await audioKeys(), before, '中断したコピーの一時データが回収されませんでした。');
+    });
+
+    await test('読み取り中の差し替え・削除でも旧音源を最後まで読み、次の読み取りへ変更を反映', async () => {
+      const bytes = new Uint8Array(2 * 1024 * 1024 + 3).fill(73);
+      await first.putTrack(sample('read-race'), new Blob([bytes]));
+      const reading = first.getAudio('read-race');
+      const replacing = second.putTrack(sample('read-race'), new Blob(['new bytes']));
+      const previous = new Uint8Array(await (await reading).arrayBuffer());
+      check(previous.length === bytes.length && previous.every(value => value === 73), '差し替え中に旧音源の一部が失われました。');
+      await replacing;
+      equal(await (await first.getAudio('read-race')).text(), 'new bytes', '差し替えた音源を読めません。');
+      await first.putTrack(sample('read-race'), new Blob([bytes]));
+      const beforeDeletion = first.getAudio('read-race');
+      const deleting = second.removeTrack('read-race');
+      const retained = new Uint8Array(await (await beforeDeletion).arrayBuffer());
+      check(retained.length === bytes.length && retained.every(value => value === 73), '削除と競合した読み取りで音源の一部が失われました。');
+      await deleting;
+      equal(await first.getAudio('read-race'), null, '削除後の新しい読み取りで音源が残っています。');
+    });
+
     await test('別接続からの同時プレイリスト作成で両方の保存を保持', async () => {
       await Promise.all([
         first.createPlaylist({id: 'first', name: 'First', trackIds: []}),

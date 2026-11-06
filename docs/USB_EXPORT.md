@@ -1,6 +1,6 @@
-# CDJ-3000用USBデータの書き出し
+# CDJ用USBデータの書き出し
 
-DECKFLOWのWeb画面で管理したBPM・CUE・プレイリストを、macOSのローカルhelperで従来Device Libraryへ変換します。**iPadだけで直接USBへ書き出す機能はまだありません。**
+DECKFLOWのWeb画面で管理したBPM・CUE・プレイリストを、macOSのローカルhelperで従来Device LibraryとOneLibraryの両方へ変換します。両形式に同じ曲とプレイリストを出力し、読み戻して照合します。**iPadだけで直接USBへ書き出す機能はまだありません。**
 
 ## 1. helperを準備する
 
@@ -41,15 +41,17 @@ node tools/export-usb.mjs \
 
 処理内容:
 
-1. JSON・音源参照・BPM・CUE範囲を検証。
+1. JSON・音源参照・BPM・CUE範囲を検証。WAVはヘッダーを範囲読み取りし、実サイズ・曲長・サンプルレート・ビットレートを確認。
 2. bakenのCDJ-3000フォーマットチェックで、機種が受け付けない音源を拒否。
-3. 新しいフォルダへだけ `PIONEER/rekordbox/export.pdb`、`PIONEER/USBANLZ/`、`Contents/` を生成。
-4. 曲名・BPM・グリッド・CUE・プレイリスト順を読み戻し、音源SHA-256を比較。
+3. 新しいフォルダへだけ `PIONEER/rekordbox/export.pdb`、`PIONEER/rekordbox/exportLibrary.db`、`PIONEER/USBANLZ/`、`Contents/` を生成。
+4. 両DBの曲情報・サイズ・曲長・音源パス・プレイリスト階層と順序を照合。PDBのWAVサンプルレート／ビットレート、ANLZのグリッド／CUE、音源SHA-256も検証。
 5. 成功すると `DECKFLOW-REPORT.json` を保存。`hardwareVerified:false` は実機確認前という意味です。
 
 どのプレイリストにも入っていない曲も含めるため、全曲リスト `DECKFLOW ALL` が追加されます。My Settingsは書き出さず、CDJ側の設定を使います。出力途中の失敗では、新規フォルダに `DECKFLOW-INCOMPLETE.txt` を残します。そのフォルダを現場用USBとして使わないでください。
 
 このhelperは既存フォルダへの更新、削除、USBの初期化を行いません。
+
+1 GiB級のWAVによる実書き出しを検証しています。Webの80 MB／20分制限とは別に、従来PDBを同時生成する現在のhelperは、その整数形式に合わせて4 GiB未満・65,535秒以内の音源を扱います。OneLibraryだけを生成するモードはありません。[大容量音源・両形式の検証記録](usb-large-audio-2026-11-07.md)を参照してください。
 
 ## 既存波形・グリッドを引き継ぐ
 
@@ -61,7 +63,7 @@ node tools/export-usb.mjs \
 
 生成された `PIONEER/` と `Contents/` を、対応するファイルシステムの**専用USBの直下**に配置します。外側の `DECKFLOW-NEW-EXPORT/` フォルダごと入れると、CDJはライブラリを見つけません。既存rekordbox USBへ重ねず、別のUSBを使ってください。
 
-CDJ-3000とCDJ-3000Xはライブラリ形式が異なります。このhelperの対象は **CDJ-3000** です。対応形式は[メーカーのUSB Export情報](https://rekordbox.com/en/support/usb-export/)で確認してください。
+CDJ-3000は従来Device Library、CDJ-3000X等はOneLibraryを使用します。このhelperは両形式を生成しますが、DECKFLOWの生成物が各機種で受け入れられることは実機では未確認です。対応形式は[メーカーのUSB Export情報](https://rekordbox.com/en/support/usb-export/)で確認してください。
 
 少数曲で曲一覧、BPM、波形、CUE、プレイリスト順、音出しをCDJ-3000で確認してから使用範囲を広げます。Mac上での構造検証だけでは、現場での動作確認にはなりません。
 
@@ -70,7 +72,7 @@ CDJ-3000とCDJ-3000Xはライブラリ形式が異なります。このhelperの
 通常のテストは純粋なXML／入力検証を実行します。
 
 ```sh
-node --test tests/usb-export.test.mjs
+node --test tests/usb-export.test.mjs tests/audio-source-info.test.mjs tests/onelibrary-verify.test.mjs
 ```
 
 実writerの統合テストを含める場合:
@@ -80,3 +82,5 @@ DECKFLOW_BAKEN_BIN="$PWD/.local/baken/bin/baken" node --test tests/usb-export.te
 ```
 
 実音源は使用せず、一時フォルダ内で自動生成したWAVを書き出して検証し、終了後に一時フォルダを除去します。
+
+1 GiB級WAVの実書き出しも含める場合は、同じコマンドに `DECKFLOW_LARGE_AUDIO_TEST=1` を指定します。

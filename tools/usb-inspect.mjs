@@ -66,6 +66,7 @@ export function inspectPdb(bytes) {
     if (u16(row, 0) !== 0x24 || row.length < 136) error();
     const string = i => stringAt(row, u16(row, 94 + i * 2));
     return {id:u32(row,72), sourceId:u32(row,20), bpm:u32(row,56) / 100,
+      size:u32(row,16), sampleRate:u32(row,8), bitRate:u32(row,48), duration:u16(row,84),
       title:string(17), filename:string(19), path:string(20), analysisPath:string(14)};
   });
   const playlists = rowsOf(bytes, 7).map(row => ({id:u32(row,12), parent:u32(row,0),
