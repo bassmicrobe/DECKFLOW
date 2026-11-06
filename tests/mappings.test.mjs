@@ -120,6 +120,32 @@ test('learning captures Shift/Alt, replaces conflicts, and never executes learne
   assert.throws(() => m.learn('a.volume', 'keyboard'), /ボタン操作/);
 });
 
+test('learning at the profile limit preserves saved mappings and still permits replacement', async () => {
+  let saved = null;
+  Object.defineProperty(globalThis, 'localStorage', {configurable: true, value: {
+    getItem() {return saved;}, setItem(_key, value) {saved = value;},
+  }});
+  const midi = fakeMidi(), m = manager();
+  await m.enableMIDI();
+  m.importProfile(profile(Array.from({length: 256}, (_, index) => ({
+    ...midiMapping('a.play', 'cc', index % 128, 'absolute', {channel: Math.floor(index / 128)}),
+    id: `mapping-${index}`,
+  }))));
+  const previous = m.profile, previouslySaved = saved;
+  m.learn('b.play', 'midi');
+  midi.first.send([0xb2, 0, 127]);
+  assert.deepEqual(m.profile, previous, 'over-limit learning must leave the complete profile intact');
+  assert.equal(saved, previouslySaved);
+  assert.ok(m.learning, 'the user can choose an existing binding or cancel');
+  assert.match(m.status.message, /256/);
+  assert.deepEqual(manager().profile, previous, 'reloading must preserve the saved configuration');
+  midi.first.send([0xb0, 0, 127]);
+  assert.equal(m.profile.mappings.length, 256);
+  assert.equal(m.learning, null);
+  assert.equal(m.getMappings('b.play').length, 1);
+  assert.deepEqual(manager().profile, m.profile);
+});
+
 test('MIDI note-off and velocity-zero release never fire a toggle', async () => {
   const midi = fakeMidi(), calls = [];
   const m = manager({onAction: (...args) => calls.push(args)});

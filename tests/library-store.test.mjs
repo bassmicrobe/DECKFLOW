@@ -93,6 +93,78 @@ test('failed save leaves previous metadata and original audio unchanged', async 
   });
 });
 
+test('the 10,000-track limit rejects additional audio without blocking edits or a replacement after deletion', async () => {
+  await withoutIndexedDB(async () => {
+    const store = await openLibrary();
+    const existing = Array.from({length: 10_000}, (_, index) => track({id: `limit-${index}`}));
+    await store.importTracks(existing, []);
+    await store.putTrack({...existing[0], title: 'Edited at capacity'}, new Blob(['original']));
+
+    await assert.rejects(store.putTrack(track({id: 'overflow'}), new Blob(['uncommitted'])), /10,000/);
+    assert.equal((await store.getTracks()).length, 10_000);
+    assert.equal(await store.getAudio('overflow'), null);
+    assert.equal((await store.getTracks()).find(item => item.id === 'limit-0').title, 'Edited at capacity');
+    assert.equal(await (await store.getAudio('limit-0')).text(), 'original');
+
+    await store.removeTrack('limit-1');
+    await store.putTrack(track({id: 'replacement'}), new Blob(['replacement']));
+    assert.equal((await store.getTracks()).length, 10_000);
+    assert.equal(await (await store.getAudio('replacement')).text(), 'replacement');
+    assert.equal(validateLibrarySnapshot(snapshot({tracks: await store.getTracks(), playlists: []})).tracks.length, 10_000);
+  });
+});
+
+test('editing track details adds playlist membership together and preserves the latest cue and audio', async () => {
+  await withoutIndexedDB(async () => {
+    const store = await openLibrary();
+    await store.putTrack(track({cue: 42}), new Blob(['original']));
+    await store.putPlaylists([{id: 'set', name: 'Set', trackIds: []}]);
+    const result = await store.updateTrackDetails('track-1', {title: 'Edited', artist: 'Artist', bpm: 64}, 'set');
+    assert.equal(result.track.title, 'Edited');
+    assert.equal(result.track.cue, 42);
+    assert.deepEqual(result.playlists[0].trackIds, ['track-1']);
+    assert.equal((await store.getTracks())[0].title, 'Edited');
+    assert.deepEqual((await store.getPlaylists())[0].trackIds, ['track-1']);
+    assert.equal(await (await store.getAudio('track-1')).text(), 'original');
+    await store.updateTrackDetails('track-1', {title: 'Again', artist: '', bpm: null}, 'set');
+    assert.deepEqual((await store.getPlaylists())[0].trackIds, ['track-1']);
+  });
+});
+
+test('a missing playlist or invalid edit does not partially save track details or recreate a deleted track', async () => {
+  await withoutIndexedDB(async () => {
+    const store = await openLibrary();
+    await store.putTrack(track(), new Blob(['original']));
+    await store.putPlaylists([{id: 'set', name: 'Set', trackIds: []}]);
+    const before = await store.getTracks();
+    const lists = await store.getPlaylists();
+    await assert.rejects(store.updateTrackDetails('track-1', {title: 'Uncommitted', artist: '', bpm: 64}, 'missing'), /プレイリスト/);
+    await assert.rejects(store.updateTrackDetails('track-1', {title: 'Uncommitted', artist: '', bpm: 301}, 'set'), /BPM/);
+    assert.deepEqual(await store.getTracks(), before);
+    assert.deepEqual(await store.getPlaylists(), lists);
+    assert.equal(await (await store.getAudio('track-1')).text(), 'original');
+    await store.removeTrack('track-1');
+    await assert.rejects(store.updateTrackDetails('track-1', {title: 'Uncommitted', artist: '', bpm: 64}), /削除/);
+    assert.deepEqual(await store.getTracks(), []);
+  });
+});
+
+test('creating playlists retains other creations and rejects conflicting IDs or missing tracks without replacing data', async () => {
+  await withoutIndexedDB(async () => {
+    const store = await openLibrary();
+    await store.putTrack(track());
+    await Promise.all([
+      store.createPlaylist({id: 'first', name: 'First', trackIds: ['track-1']}),
+      store.createPlaylist({id: 'second', name: 'Second', trackIds: []}),
+    ]);
+    const before = await store.getPlaylists();
+    assert.deepEqual(before.map(item => item.id), ['first', 'second']);
+    await assert.rejects(store.createPlaylist({id: 'first', name: 'Replacement', trackIds: []}), /重複/);
+    await assert.rejects(store.createPlaylist({id: 'third', name: 'Dangling', trackIds: ['missing']}), /存在しない曲/);
+    assert.deepEqual(await store.getPlaylists(), before);
+  });
+});
+
 test('removing a track removes its audio and playlist references while retaining other tracks', async () => {
   await withoutIndexedDB(async () => {
     const store = await openLibrary();
@@ -142,7 +214,10 @@ test('an opened persistent store reports a later quota error instead of switchin
   const database = {
     transaction() {
       const transaction = {
-        objectStore() { return {put() { throw new DOMException('Full', 'QuotaExceededError'); }}; },
+        objectStore() { return {
+          count() { const request = {}; queueMicrotask(() => { request.result = 0; request.onsuccess?.(); }); return request; },
+          put() { throw new DOMException('Full', 'QuotaExceededError'); },
+        }; },
         abort() { queueMicrotask(() => transaction.onabort?.()); },
       };
       return transaction;

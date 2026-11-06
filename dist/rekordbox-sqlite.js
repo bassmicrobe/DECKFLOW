@@ -1,7 +1,7 @@
 /** Read-only rekordbox 6/7 master.db and OneLibrary importer, usable in a Worker. */
-import {decrypt, DEFAULT_KEY, MASTER_KEY} from './vendor/onelibrary/sqlcipher.js?v=7ede21fefddd1339';
-import {SQLiteDatabase} from './vendor/onelibrary/sqlite.js?v=7ede21fefddd1339';
-import {validateLibrarySnapshot} from './library-store.js?v=7ede21fefddd1339';
+import {decrypt, DEFAULT_KEY, MASTER_KEY} from './vendor/onelibrary/sqlcipher.js?v=97faa0ed72231add';
+import {SQLiteDatabase} from './vendor/onelibrary/sqlite.js?v=97faa0ed72231add';
+import {validateLibrarySnapshot} from './library-store.js?v=97faa0ed72231add';
 
 const fail = message => { throw new Error(message); };
 const MAX_DATABASE = 128 * 1024 * 1024;

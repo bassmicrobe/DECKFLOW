@@ -162,3 +162,14 @@ JSONのnative保存・共有はソース確認までです。実機での保存�
 - 物理iPad/Safariでのタッチ感・音声出力遅延・長時間負荷は未検証。ブラウザのエミュレーションとDSP回帰テストでの確認であり、実機検証の代替ではない。
 
 - 追加検証でブラウザ標準スライダーがプラッター操作中の別の指を無視するケースを再現し、`touch-slider.js` でタッチ／ペンを指ごとに捕捉。マウスとキーボードは標準操作を維持。修正後は3指同時操作で両デッキがSCRATCHINGのままクロスフェーダーが0.500→0.663へ変化し、フェーダーの指だけを離しても両デッキのスクラッチが継続することを確認。
+
+
+## 2026-11-07 — 包括監査・ローカル修正（未デプロイ）
+
+開始 `ba8650e`、作業ブランチ `codex/audit-20261107`。保存の原子性・上限、MIDI設定保持、KEY LOCK復帰、曲削除後の音声解放、逆相音源解析、dialog名、読み込み元件数、SoundTouch来歴表示を修正。詳細・根拠・残件は [監査報告](audit-2026-11-07.md)。
+
+- Node24: 217成功、失敗/skip0（固定baken含む）。Node22: 215成功、失敗0、実writer2skip。
+- 実IndexedDB8項目成功、失敗注入rollback・同時更新・上限を検証し一時DBを削除。`node scripts/serve-tests.mjs` から再実行可能。
+- 最終build: 38 runtime assets / 約476 KiB、SW `09586c34122f3937`。Dockerの75 precache URLが最終distとbytes一致。iOSへ72資産同期、署名なしgeneric Simulator build成功。
+- localhostで主要UI操作、日本語編集/検索、削除、配信サーバー停止後のPWA再起動・保存曲再生を確認。
+- 本番反映・実ユーザーデータ変更・実MIDI/USB/CDJ・物理iPad・native runtime確認は行っていない。監査用コンテナ/タブ/サーバーは終了。

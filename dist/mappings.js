@@ -4,6 +4,7 @@
  * Keyboard assignments intentionally target button actions; sliders use MIDI.
  */
 const STORAGE_KEY = 'deckflow.input-profile.v1';
+const MAX_MAPPINGS = 256;
 const MODES = new Set(['absolute', 'relative-twos', 'relative-offset']);
 const KEY_CODES = /^(Key[A-Z]|Digit[0-9]|Numpad(?:[0-9]|Add|Subtract|Multiply|Divide|Decimal|Enter)|Arrow(?:Up|Down|Left|Right)|Space|Enter|Backspace|Delete|BracketLeft|BracketRight|Backslash|Semicolon|Quote|Comma|Period|Slash|Minus|Equal|Backquote|IntlBackslash|IntlRo|IntlYen)$/;
 const DEFAULT_KEYS = {
@@ -225,8 +226,12 @@ export class MappingManager {
     }
     const mapping = {id: makeId(), actionId: learning.actionId, source, binding, mode: learning.mode};
     const conflicts = this._profile.mappings.filter(old => sameBinding(old, mapping));
-    this._profile.mappings = this._profile.mappings.filter(old => !sameBinding(old, mapping));
-    this._profile.mappings.push(mapping);
+    const remaining = this._profile.mappings.filter(old => !sameBinding(old, mapping));
+    if (remaining.length >= MAX_MAPPINGS) {
+      this._status(`割り当ては${MAX_MAPPINGS}件までです。不要な割り当てを削除するか、既存の入力を選んで置き換えてください。`);
+      return;
+    }
+    this._profile = {...this._profile, mappings: [...remaining, mapping]};
     this.learning = null;
     this._change();
     this._status(conflicts.some(old => old.actionId !== mapping.actionId)
@@ -339,7 +344,7 @@ export class MappingManager {
     let profile;
     if (typeof json !== 'string' || json.length > 200000) throw new Error('設定ファイルのサイズまたは形式を確認してください。');
     try { profile = JSON.parse(json); } catch { throw new Error('設定ファイルをJSONとして読み込めません。'); }
-    if (!profile || profile.version !== 1 || !Array.isArray(profile.mappings) || profile.mappings.length > 256 ||
+    if (!profile || profile.version !== 1 || !Array.isArray(profile.mappings) || profile.mappings.length > MAX_MAPPINGS ||
         typeof profile.name !== 'string' || !profile.name.trim() || profile.name.length > 80) {
       throw new Error('対応していない設定ファイルです。バージョン1の割り当て設定を選んでください。');
     }

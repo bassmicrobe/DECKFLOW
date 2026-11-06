@@ -77,6 +77,21 @@ test('removing a source reference leaves saved tracks and audio intact',async()=
   assert.equal((await library.getSources()).length,0);assert.equal((await library.getTracks()).length,1);assert.ok(await library.getAudio(track.id));
 });
 
+test('a full source list rejects a new import atomically and retrying cannot add orphan tracks or playlists',async()=>{
+  const library=await openLibrary();
+  for(let i=0;i<20;i++)await library.putSource({id:`existing-${i}`,label:`Existing ${i}`,trackIds:[]});
+  const beforeSources=await library.getSources();
+  for(let attempt=0;attempt<2;attempt++){
+    const s=setup();
+    await assert.rejects(cacheSourceLibrary({library,...s,sources:await library.getSources()}),/20件/);
+    assert.deepEqual(await library.getTracks(),[]);
+    assert.deepEqual(await library.getPlaylists(),[]);
+    assert.deepEqual(await library.getSources(),beforeSources);
+    assert.equal(s.calls.analysis,0);
+    assert.equal(s.calls.audioBytes,0);
+  }
+});
+
 test('resuming after cancellation restores the pending source grid/cues, while retaining a title edit',async()=>{
   const library=await openLibrary(),controller=new AbortController();
   await assert.rejects(cacheSourceLibrary({library,...setup(),signal:controller.signal,onMetadata:()=>controller.abort()}),{name:'AbortError'});

@@ -1,0 +1,1313 @@
+v22.23.1
+TAP version 13
+# Subtest: mono analysis retains the existing downsampling, 120 BPM and nonzero peaks
+ok 1 - mono analysis retains the existing downsampling, 120 BPM and nonzero peaks
+  ---
+  duration_ms: 49.42025
+  type: 'test'
+  ...
+# Subtest: opposite-phase stereo retains the same BPM and waveform as the audible channel
+ok 2 - opposite-phase stereo retains the same BPM and waveform as the audible channel
+  ---
+  duration_ms: 209.730042
+  type: 'test'
+  ...
+# Subtest: a silent first channel cannot hide the audible channel or change its analysis
+ok 3 - a silent first channel cannot hide the audible channel or change its analysis
+  ---
+  duration_ms: 18.751916
+  type: 'test'
+  ...
+# Subtest: all-silent channels remain silent and a partial final downsampling frame is retained
+ok 4 - all-silent channels remain silent and a partial final downsampling frame is retained
+  ---
+  duration_ms: 13.0965
+  type: 'test'
+  ...
+# Subtest: malformed channels are rejected and nonfinite samples cannot contaminate the analysis
+ok 5 - malformed channels are rejected and nonfinite samples cannot contaminate the analysis
+  ---
+  duration_ms: 0.586541
+  type: 'test'
+  ...
+# Subtest: estimates 90 BPM from accented kick pulses with background noise
+ok 6 - estimates 90 BPM from accented kick pulses with background noise
+  ---
+  duration_ms: 41.499959
+  type: 'test'
+  ...
+# Subtest: estimates 120 BPM from accented kick pulses with background noise
+ok 7 - estimates 120 BPM from accented kick pulses with background noise
+  ---
+  duration_ms: 31.690834
+  type: 'test'
+  ...
+# Subtest: estimates 128 BPM from accented kick pulses with background noise
+ok 8 - estimates 128 BPM from accented kick pulses with background noise
+  ---
+  duration_ms: 13.662583
+  type: 'test'
+  ...
+# Subtest: estimates 174 BPM from accented kick pulses with background noise
+ok 9 - estimates 174 BPM from accented kick pulses with background noise
+  ---
+  duration_ms: 18.427625
+  type: 'test'
+  ...
+# Subtest: silence and a steady tone do not invent a BPM
+ok 10 - silence and a steady tone do not invent a BPM
+  ---
+  duration_ms: 11.031458
+  type: 'test'
+  ...
+# Subtest: too-short audio retains waveform/duration without assigning tempo
+ok 11 - too-short audio retains waveform/duration without assigning tempo
+  ---
+  duration_ms: 2.24225
+  type: 'test'
+  ...
+# Subtest: long audio samples more than just a silent intro
+ok 12 - long audio samples more than just a silent intro
+  ---
+  duration_ms: 38.627
+  type: 'test'
+  ...
+# Subtest: invalid input fails with a message and nonfinite samples remain bounded
+ok 13 - invalid input fails with a message and nonfinite samples remain bounded
+  ---
+  duration_ms: 4.250166
+  type: 'test'
+  ...
+# Subtest: cache deduplicates a pending load and shares the same PCM without invoking another loader
+ok 14 - cache deduplicates a pending load and shares the same PCM without invoking another loader
+  ---
+  duration_ms: 13.014958
+  type: 'test'
+  ...
+# Subtest: different track decoders run serially and rejected work does not block a retry
+ok 15 - different track decoders run serially and rejected work does not block a retry
+  ---
+  duration_ms: 1.050166
+  type: 'test'
+  ...
+# Subtest: least recently used entries are evicted by both entry count and total PCM bytes
+ok 16 - least recently used entries are evicted by both entry count and total PCM bytes
+  ---
+  duration_ms: 3.310667
+  type: 'test'
+  ...
+# Subtest: buffers exceeding the memory cap can play but are not retained or evict existing entries
+ok 17 - buffers exceeding the memory cap can play but are not retained or evict existing entries
+  ---
+  duration_ms: 0.258834
+  type: 'test'
+  ...
+# Subtest: delete and clear prevent stale pending work from repopulating the cache
+ok 18 - delete and clear prevent stale pending work from repopulating the cache
+  ---
+  duration_ms: 11.524792
+  type: 'test'
+  ...
+# Subtest: queue bound includes invalidated pending work and permits coalescing at the limit
+ok 19 - queue bound includes invalidated pending work and permits coalescing at the limit
+  ---
+  duration_ms: 0.574791
+  type: 'test'
+  ...
+# Subtest: malformed PCM cannot poison the cache and zero retention remains usable
+ok 20 - malformed PCM cannot poison the cache and zero retention remains usable
+  ---
+  duration_ms: 1.27025
+  type: 'test'
+  ...
+# Subtest: vendored SoundTouch preserves 440/660 Hz at source rate 0.92
+ok 21 - vendored SoundTouch preserves 440/660 Hz at source rate 0.92
+  ---
+  duration_ms: 2034.260167
+  type: 'test'
+  ...
+# Subtest: vendored SoundTouch preserves 440/660 Hz at source rate 1.08
+ok 22 - vendored SoundTouch preserves 440/660 Hz at source rate 1.08
+  ---
+  duration_ms: 1769.784209
+  type: 'test'
+  ...
+# Subtest: vendored SoundTouch preserves 440/660 Hz at source rate 1.25
+ok 23 - vendored SoundTouch preserves 440/660 Hz at source rate 1.25
+  ---
+  duration_ms: 2038.156335
+  type: 'test'
+  ...
+# Subtest: scratch DSP renders fractional forward and reverse movement, then settles to silence
+ok 24 - scratch DSP renders fractional forward and reverse movement, then settles to silence
+  ---
+  duration_ms: 110.41825
+  type: 'test'
+  ...
+# Subtest: scratch boundaries and disposal remain finite and silent
+ok 25 - scratch boundaries and disposal remain finite and silent
+  ---
+  duration_ms: 8.618875
+  type: 'test'
+  ...
+# Subtest: scratch keeps steady speed with 60 Hz touch samples and audio-quantum delivery jitter
+ok 26 - scratch keeps steady speed with 60 Hz touch samples and audio-quantum delivery jitter
+  ---
+  duration_ms: 113.880584
+  type: 'test'
+  ...
+# Subtest: scratch keeps steady speed with 120 Hz touch samples and audio-quantum delivery jitter
+ok 27 - scratch keeps steady speed with 120 Hz touch samples and audio-quantum delivery jitter
+  ---
+  duration_ms: 25.700959
+  type: 'test'
+  ...
+# Subtest: scratch interpolation bounds event bursts and invalid timestamps without runaway movement
+ok 28 - scratch interpolation bounds event bursts and invalid timestamps without runaway movement
+  ---
+  duration_ms: 21.692792
+  type: 'test'
+  ...
+# Subtest: scratch reanchors touch timestamps after the audio clock was interrupted
+ok 29 - scratch reanchors touch timestamps after the audio clock was interrupted
+  ---
+  duration_ms: 5.928416
+  type: 'test'
+  ...
+# Subtest: transport preserves position through rate, pause, loop exit and CUE
+ok 30 - transport preserves position through rate, pause, loop exit and CUE
+  ---
+  duration_ms: 28.533167
+  type: 'test'
+  ...
+# Subtest: KEY LOCK mirrors source rate and failure reports a usable fallback
+ok 31 - KEY LOCK mirrors source rate and failure reports a usable fallback
+  ---
+  duration_ms: 1.179958
+  type: 'test'
+  ...
+# Subtest: KEY LOCK construction and connection failures keep playback at the current position
+ok 32 - KEY LOCK construction and connection failures keep playback at the current position
+  ---
+  duration_ms: 4.255416
+  type: 'test'
+  ...
+# Subtest: grab renders from the original position, release resumes at the finger target
+ok 33 - grab renders from the original position, release resumes at the finger target
+  ---
+  duration_ms: 1.069708
+  type: 'test'
+  ...
+# Subtest: scratching a paused deck stays paused after release
+ok 34 - scratching a paused deck stays paused after release
+  ---
+  duration_ms: 0.365166
+  type: 'test'
+  ...
+# Subtest: release before PCM ready cannot reconnect scratch or restart the transport later
+ok 35 - release before PCM ready cannot reconnect scratch or restart the transport later
+  ---
+  duration_ms: 24.475625
+  type: 'test'
+  ...
+# Subtest: loading another track cancels pending scratch and releases stale PCM
+ok 36 - loading another track cancels pending scratch and releases stale PCM
+  ---
+  duration_ms: 0.819167
+  type: 'test'
+  ...
+# Subtest: external seek exits scratch without a delayed pointer release overriding it
+ok 37 - external seek exits scratch without a delayed pointer release overriding it
+  ---
+  duration_ms: 0.470125
+  type: 'test'
+  ...
+# Subtest: unity KEY LOCK bypass avoids DSP priming and rate transitions retain position
+ok 38 - unity KEY LOCK bypass avoids DSP priming and rate transitions retain position
+  ---
+  duration_ms: 6.30475
+  type: 'test'
+  ...
+# Subtest: touch timestamps survive preparation and stale scratch positions cannot move a new gesture
+ok 39 - touch timestamps survive preparation and stale scratch positions cannot move a new gesture
+  ---
+  duration_ms: 0.909542
+  type: 'test'
+  ...
+# Subtest: release followed by explicit pause cannot resurrect playback
+ok 40 - release followed by explicit pause cannot resurrect playback
+  ---
+  duration_ms: 9.17475
+  type: 'test'
+  ...
+# Subtest: rapid release and regrab retain resume intent without a stale play command
+ok 41 - rapid release and regrab retain resume intent without a stale play command
+  ---
+  duration_ms: 0.985583
+  type: 'test'
+  ...
+# Subtest: unloading a paused deck releases PCM and prevents delayed playback
+ok 42 - unloading a paused deck releases PCM and prevents delayed playback
+  ---
+  duration_ms: 3.967375
+  type: 'test'
+  ...
+# Subtest: unloading a playing deck releases PCM and prevents delayed playback
+ok 43 - unloading a playing deck releases PCM and prevents delayed playback
+  ---
+  duration_ms: 0.480834
+  type: 'test'
+  ...
+# Subtest: unloading a pending-play deck releases PCM and prevents delayed playback
+ok 44 - unloading a pending-play deck releases PCM and prevents delayed playback
+  ---
+  duration_ms: 1.102875
+  type: 'test'
+  ...
+# Subtest: unloading a scratch deck releases PCM and prevents delayed playback
+ok 45 - unloading a scratch deck releases PCM and prevents delayed playback
+  ---
+  duration_ms: 0.730875
+  type: 'test'
+  ...
+# Subtest: unloading a pending-scratch deck releases PCM and prevents delayed playback
+ok 46 - unloading a pending-scratch deck releases PCM and prevents delayed playback
+  ---
+  duration_ms: 0.366041
+  type: 'test'
+  ...
+# Subtest: build versions the whole module graph, precaches exact URLs and is idempotent
+ok 47 - build versions the whole module graph, precaches exact URLs and is idempotent
+  ---
+  duration_ms: 593.606417
+  type: 'test'
+  ...
+# Subtest: changing one dependency rotates entry, dynamic import, worker and worklet graph URLs together
+ok 48 - changing one dependency rotates entry, dynamic import, worker and worklet graph URLs together
+  ---
+  duration_ms: 313.78325
+  type: 'test'
+  ...
+# Subtest: CSS and icon changes invalidate their entry URLs and manifest but retain the module graph
+ok 49 - CSS and icon changes invalidate their entry URLs and manifest but retain the module graph
+  ---
+  duration_ms: 311.35375
+  type: 'test'
+  ...
+# Subtest: a missing entry asset fails before writing any generated references
+ok 50 - a missing entry asset fails before writing any generated references
+  ---
+  duration_ms: 262.874291
+  type: 'test'
+  ...
+# Subtest: a missing nested local module fails before writing any generated references
+ok 51 - a missing nested local module fails before writing any generated references
+  ---
+  duration_ms: 200.846875
+  type: 'test'
+  ...
+# Subtest: file drag detection works during the protected drag phase, and ignores text/links
+ok 52 - file drag detection works during the protected drag phase, and ignores text/links
+  ---
+  duration_ms: 0.809625
+  type: 'test'
+  ...
+# Subtest: nested enters/leaves keep the overlay stable and a file drop is copied synchronously
+ok 53 - nested enters/leaves keep the overlay stable and a file drop is copied synchronously
+  ---
+  duration_ms: 1.149
+  type: 'test'
+  ...
+# Subtest: dropping item-backed files ignores directories and non-file items
+ok 54 - dropping item-backed files ignores directories and non-file items
+  ---
+  duration_ms: 0.263167
+  type: 'test'
+  ...
+# Subtest: leaving, cancellation, losing focus and disposal clear the drag indicator
+ok 55 - leaving, cancellation, losing focus and disposal clear the drag indicator
+  ---
+  duration_ms: 0.868291
+  type: 'test'
+  ...
+# Subtest: ordinary drags are never prevented or imported
+ok 56 - ordinary drags are never prevented or imported
+  ---
+  duration_ms: 0.15075
+  type: 'test'
+  ...
+# Subtest: XML audio relink tolerates integer TotalTime and rejects ambiguous or wrong audio
+ok 57 - XML audio relink tolerates integer TotalTime and rejects ambiguous or wrong audio
+  ---
+  duration_ms: 3.511333
+  type: 'test'
+  ...
+# Subtest: display peaks retain both channels without changing imported metadata
+ok 58 - display peaks retain both channels without changing imported metadata
+  ---
+  duration_ms: 0.197459
+  type: 'test'
+  ...
+# Subtest: variable tempo display follows segment boundaries and bar beat numbers
+ok 59 - variable tempo display follows segment boundaries and bar beat numbers
+  ---
+  duration_ms: 0.573625
+  type: 'test'
+  ...
+# Subtest: relink uses actual duration and preserves preparation; rejects marks outside actual audio
+ok 60 - relink uses actual duration and preserves preparation; rejects marks outside actual audio
+  ---
+  duration_ms: 0.641
+  type: 'test'
+  ...
+# Subtest: exact scoped folder paths match relocated audio and refuse ambiguous basename guesses
+ok 61 - exact scoped folder paths match relocated audio and refuse ambiguous basename guesses
+  ---
+  duration_ms: 1.509708
+  type: 'test'
+  ...
+# Subtest: folder file input preserves paths; missing database and unsafe WAL are explicit
+ok 62 - folder file input preserves paths; missing database and unsafe WAL are explicit
+  ---
+  duration_ms: 18.344667
+  type: 'test'
+  ...
+# Subtest: directory handles enumerate lazily and cancellation never reads audio
+ok 63 - directory handles enumerate lazily and cancellation never reads audio
+  ---
+  duration_ms: 0.557875
+  type: 'test'
+  ...
+# Subtest: source import persists preparation and encoded audio without decoding, and cached reopen skips DB/ANLZ parsing
+ok 64 - source import persists preparation and encoded audio without decoding, and cached reopen skips DB/ANLZ parsing
+  ---
+  duration_ms: 70.301459
+  type: 'test'
+  ...
+# Subtest: missing audio remains a metadata placeholder and can be connected on a later folder selection
+ok 65 - missing audio remains a metadata placeholder and can be connected on a later folder selection
+  ---
+  duration_ms: 14.677667
+  type: 'test'
+  ...
+# Subtest: size mismatch never marks a missing source as playable and cancellation keeps completed metadata
+ok 66 - size mismatch never marks a missing source as playable and cancellation keeps completed metadata
+  ---
+  duration_ms: 13.280625
+  type: 'test'
+  ...
+# Subtest: removing a source reference leaves saved tracks and audio intact
+ok 67 - removing a source reference leaves saved tracks and audio intact
+  ---
+  duration_ms: 12.183625
+  type: 'test'
+  ...
+# Subtest: a full source list rejects a new import atomically and retrying cannot add orphan tracks or playlists
+ok 68 - a full source list rejects a new import atomically and retrying cannot add orphan tracks or playlists
+  ---
+  duration_ms: 9.746542
+  type: 'test'
+  ...
+# Subtest: resuming after cancellation restores the pending source grid/cues, while retaining a title edit
+ok 69 - resuming after cancellation restores the pending source grid/cues, while retaining a title edit
+  ---
+  duration_ms: 13.0325
+  type: 'test'
+  ...
+# Subtest: resume restores missing peaks but never replaces locally edited preparation
+ok 70 - resume restores missing peaks but never replaces locally edited preparation
+  ---
+  duration_ms: 5.954333
+  type: 'test'
+  ...
+# Subtest: cancellation after worker analysis prevents the pending track/audio write
+ok 71 - cancellation after worker analysis prevents the pending track/audio write
+  ---
+  duration_ms: 7.002917
+  type: 'test'
+  ...
+# Subtest: serialized save callback can preserve a concurrent edit and its returned metadata becomes the next write base
+ok 72 - serialized save callback can preserve a concurrent edit and its returned metadata becomes the next write base
+  ---
+  duration_ms: 6.450083
+  type: 'test'
+  ...
+# Subtest: deleted records are not resurrected when the save callback returns null
+ok 73 - deleted records are not resurrected when the save callback returns null
+  ---
+  duration_ms: 6.967042
+  type: 'test'
+  ...
+# Subtest: quota failure during waveform persistence stops copying instead of reporting only an analysis warning
+ok 74 - quota failure during waveform persistence stops copying instead of reporting only an analysis warning
+  ---
+  duration_ms: 12.443209
+  type: 'test'
+  ...
+# Subtest: later EXT selection restores richer hot cues without reparsing the DB or replacing local cue edits
+ok 75 - later EXT selection restores richer hot cues without reparsing the DB or replacing local cue edits
+  ---
+  duration_ms: 16.370542
+  type: 'test'
+  ...
+# Subtest: distinct original audio paths cannot both bind to one same-size suffix match, including the first entry
+ok 76 - distinct original audio paths cannot both bind to one same-size suffix match, including the first entry
+  ---
+  duration_ms: 1.268125
+  type: 'test'
+  ...
+# Subtest: duplicate DB records for one identical full original audio path may share its selected file
+ok 77 - duplicate DB records for one identical full original audio path may share its selected file
+  ---
+  duration_ms: 2.167209
+  type: 'test'
+  ...
+# Subtest: anonymous same-basename ANLZ cannot collapse different original analysis/audio paths onto one selected file
+ok 78 - anonymous same-basename ANLZ cannot collapse different original analysis/audio paths onto one selected file
+  ---
+  duration_ms: 10.938458
+  type: 'test'
+  ...
+# Subtest: identical original audio and analysis paths across duplicate records can reuse anonymous ANLZ
+ok 79 - identical original audio and analysis paths across duplicate records can reuse anonymous ANLZ
+  ---
+  duration_ms: 13.237916
+  type: 'test'
+  ...
+# Subtest: snapshot round trip retains cue/playlist order without trusting extra fields
+ok 80 - snapshot round trip retains cue/playlist order without trusting extra fields
+  ---
+  duration_ms: 8.440708
+  type: 'test'
+  ...
+# Subtest: snapshot rejects broken IDs, unsupported formats, dangling and duplicate playlist references
+ok 81 - snapshot rejects broken IDs, unsupported formats, dangling and duplicate playlist references
+  ---
+  duration_ms: 0.5505
+  type: 'test'
+  ...
+# Subtest: metadata rejects tempo/audio-position/peak data that cannot be played safely
+ok 82 - metadata rejects tempo/audio-position/peak data that cannot be played safely
+  ---
+  duration_ms: 0.460542
+  type: 'test'
+  ...
+# Subtest: snapshot filenames stay basenames across Mac, Windows and USB export paths
+ok 83 - snapshot filenames stay basenames across Mac, Windows and USB export paths
+  ---
+  duration_ms: 0.383167
+  type: 'test'
+  ...
+# Subtest: memory fallback is explicit and editing metadata does not erase encoded audio
+ok 84 - memory fallback is explicit and editing metadata does not erase encoded audio
+  ---
+  duration_ms: 2.200625
+  type: 'test'
+  ...
+# Subtest: failed save leaves previous metadata and original audio unchanged
+ok 85 - failed save leaves previous metadata and original audio unchanged
+  ---
+  duration_ms: 0.366625
+  type: 'test'
+  ...
+# Subtest: the 10,000-track limit rejects additional audio without blocking edits or a replacement after deletion
+ok 86 - the 10,000-track limit rejects additional audio without blocking edits or a replacement after deletion
+  ---
+  duration_ms: 404.373417
+  type: 'test'
+  ...
+# Subtest: editing track details adds playlist membership together and preserves the latest cue and audio
+ok 87 - editing track details adds playlist membership together and preserves the latest cue and audio
+  ---
+  duration_ms: 0.621375
+  type: 'test'
+  ...
+# Subtest: a missing playlist or invalid edit does not partially save track details or recreate a deleted track
+ok 88 - a missing playlist or invalid edit does not partially save track details or recreate a deleted track
+  ---
+  duration_ms: 1.630292
+  type: 'test'
+  ...
+# Subtest: creating playlists retains other creations and rejects conflicting IDs or missing tracks without replacing data
+ok 89 - creating playlists retains other creations and rejects conflicting IDs or missing tracks without replacing data
+  ---
+  duration_ms: 1.150167
+  type: 'test'
+  ...
+# Subtest: removing a track removes its audio and playlist references while retaining other tracks
+ok 90 - removing a track removes its audio and playlist references while retaining other tracks
+  ---
+  duration_ms: 0.323792
+  type: 'test'
+  ...
+# Subtest: playlist writes are validated before replacing the saved configuration
+ok 91 - playlist writes are validated before replacing the saved configuration
+  ---
+  duration_ms: 0.110917
+  type: 'test'
+  ...
+# Subtest: an initial SecurityError uses only explicit volatile storage
+ok 92 - an initial SecurityError uses only explicit volatile storage
+  ---
+  duration_ms: 0.207042
+  type: 'test'
+  ...
+# Subtest: an opened persistent store reports a later quota error instead of switching to volatile storage
+ok 93 - an opened persistent store reports a later quota error instead of switching to volatile storage
+  ---
+  duration_ms: 0.39725
+  type: 'test'
+  ...
+# Subtest: rekordbox metadata survives snapshots including 8 hot cues, tempo segments, loops and hierarchy
+ok 94 - rekordbox metadata survives snapshots including 8 hot cues, tempo segments, loops and hierarchy
+  ---
+  duration_ms: 1.965
+  type: 'test'
+  ...
+# Subtest: XML import is additive and atomic, preserves existing edits/audio and skips repeated source IDs
+ok 95 - XML import is additive and atomic, preserves existing edits/audio and skips repeated source IDs
+  ---
+  duration_ms: 1.428583
+  type: 'test'
+  ...
+# Subtest: does not request MIDI until asked; reports unsupported browsers honestly
+ok 96 - does not request MIDI until asked; reports unsupported browsers honestly
+  ---
+  duration_ms: 12.892625
+  type: 'test'
+  ...
+# Subtest: key repeat, key-up and modifier changes do not toggle transport twice
+ok 97 - key repeat, key-up and modifier changes do not toggle transport twice
+  ---
+  duration_ms: 5.99525
+  type: 'test'
+  ...
+# Subtest: typing in forms/dialogs and browser shortcuts do not control decks
+ok 98 - typing in forms/dialogs and browser shortcuts do not control decks
+  ---
+  duration_ms: 0.323375
+  type: 'test'
+  ...
+# Subtest: learning captures Shift/Alt, replaces conflicts, and never executes learned key
+ok 99 - learning captures Shift/Alt, replaces conflicts, and never executes learned key
+  ---
+  duration_ms: 0.60775
+  type: 'test'
+  ...
+# Subtest: learning at the profile limit preserves saved mappings and still permits replacement
+ok 100 - learning at the profile limit preserves saved mappings and still permits replacement
+  ---
+  duration_ms: 17.978709
+  type: 'test'
+  ...
+# Subtest: MIDI note-off and velocity-zero release never fire a toggle
+ok 101 - MIDI note-off and velocity-zero release never fire a toggle
+  ---
+  duration_ms: 0.771542
+  type: 'test'
+  ...
+# Subtest: CC buttons use rising edges; channels and 14-bit pitchbend remain distinct
+ok 102 - CC buttons use rising edges; channels and 14-bit pitchbend remain distinct
+  ---
+  duration_ms: 1.130959
+  type: 'test'
+  ...
+# Subtest: relative encoders follow current action value and clamp without wraparound
+ok 103 - relative encoders follow current action value and clamp without wraparound
+  ---
+  duration_ms: 1.944084
+  type: 'test'
+  ...
+# Subtest: relative learning waits for CC instead of accidentally binding notes
+ok 104 - relative learning waits for CC instead of accidentally binding notes
+  ---
+  duration_ms: 2.099125
+  type: 'test'
+  ...
+# Subtest: profile imports validate before mutation and reject unsupported/ambiguous inputs
+ok 105 - profile imports validate before mutation and reject unsupported/ambiguous inputs
+  ---
+  duration_ms: 2.674042
+  type: 'test'
+  ...
+# Subtest: saved mappings survive reload; corrupt storage falls back to usable defaults
+ok 106 - saved mappings survive reload; corrupt storage falls back to usable defaults
+  ---
+  duration_ms: 0.761166
+  type: 'test'
+  ...
+# Subtest: hotplug and dispose remove old listeners without accumulating callbacks
+ok 107 - hotplug and dispose remove old listeners without accumulating callbacks
+  ---
+  duration_ms: 0.471292
+  type: 'test'
+  ...
+# Subtest: permission denial remains a truthful disconnected error without fake inputs
+ok 108 - permission denial remains a truthful disconnected error without fake inputs
+  ---
+  duration_ms: 0.242875
+  type: 'test'
+  ...
+# Subtest: concurrent MIDI permission requests are shared and disposal prevents late attachment
+ok 109 - concurrent MIDI permission requests are shared and disposal prevents late attachment
+  ---
+  duration_ms: 0.290542
+  type: 'test'
+  ...
+# Subtest: a synchronous permission error can be retried instead of caching failure forever
+ok 110 - a synchronous permission error can be retried instead of caching failure forever
+  ---
+  duration_ms: 0.693375
+  type: 'test'
+  ...
+# Subtest: begins synchronously, captures one finger and does not end for a second finger
+ok 111 - begins synchronously, captures one finger and does not end for a second finger
+  ---
+  duration_ms: 19.627166
+  type: 'test'
+  ...
+# Subtest: coalesced path preserves complete rotations and sends one latest audio target
+ok 112 - coalesced path preserves complete rotations and sends one latest audio target
+  ---
+  duration_ms: 0.505583
+  type: 'test'
+  ...
+# Subtest: angle wrap is continuous and reversing at a track boundary responds immediately
+ok 113 - angle wrap is continuous and reversing at a track boundary responds immediately
+  ---
+  duration_ms: 0.459708
+  type: 'test'
+  ...
+# Subtest: centre touches and fast spindle crossings rebase without half-turn jumps
+ok 114 - centre touches and fast spindle crossings rebase without half-turn jumps
+  ---
+  duration_ms: 0.259417
+  type: 'test'
+  ...
+# Subtest: pending audio preparation preserves the final position and cannot resurrect a released gesture
+ok 115 - pending audio preparation preserves the final position and cannot resurrect a released gesture
+  ---
+  duration_ms: 20.606375
+  type: 'test'
+  ...
+# Subtest: cancellation does not integrate cancellation coordinates and lifecycle listeners clean up
+ok 116 - cancellation does not integrate cancellation coordinates and lifecycle listeners clean up
+  ---
+  duration_ms: 3.815042
+  type: 'test'
+  ...
+# Subtest: each deck can own a different touch simultaneously
+ok 117 - each deck can own a different touch simultaneously
+  ---
+  duration_ms: 2.371458
+  type: 'test'
+  ...
+# Subtest: scrolling releases the cached geometry and the next gesture reads it again
+ok 118 - scrolling releases the cached geometry and the next gesture reads it again
+  ---
+  duration_ms: 2.471292
+  type: 'test'
+  ...
+# Subtest: begin failures release capture and stale failures cannot cancel a subsequent gesture
+ok 119 - begin failures release capture and stale failures cannot cancel a subsequent gesture
+  ---
+  duration_ms: 16.061583
+  type: 'test'
+  ...
+# Subtest: empty decks, non-primary buttons and malformed samples are ignored
+ok 120 - empty decks, non-primary buttons and malformed samples are ignored
+  ---
+  duration_ms: 0.949667
+  type: 'test'
+  ...
+# Subtest: the user gesture resumes audio before awaiting storage and only one source plays
+ok 121 - the user gesture resumes audio before awaiting storage and only one source plays
+  ---
+  duration_ms: 16.431583
+  type: 'test'
+  ...
+# Subtest: pause preserves time, seeking clamps, resume reuses PCM and stop releases it
+ok 122 - pause preserves time, seeking clamps, resume reuses PCM and stop releases it
+  ---
+  duration_ms: 1.679
+  type: 'test'
+  ...
+# Subtest: switching during storage ignores a stale success or failure
+ok 123 - switching during storage ignores a stale success or failure
+  ---
+  duration_ms: 21.943167
+  type: 'test'
+  ...
+# Subtest: stop, clear and a second toggle cancel pending decode without later autoplay
+ok 124 - stop, clear and a second toggle cancel pending decode without later autoplay
+  ---
+  duration_ms: 0.509208
+  type: 'test'
+  ...
+# Subtest: a stopped delayed resume cannot fetch or start audio
+ok 125 - a stopped delayed resume cannot fetch or start audio
+  ---
+  duration_ms: 0.203417
+  type: 'test'
+  ...
+# Subtest: missing audio and decode failures report errors and allow a later retry
+ok 126 - missing audio and decode failures report errors and allow a later retry
+  ---
+  duration_ms: 0.601166
+  type: 'test'
+  ...
+# Subtest: resume failures can be retried and a stale rejection leaves the current audition alone
+ok 127 - resume failures can be retried and a stale rejection leaves the current audition alone
+  ---
+  duration_ms: 0.201916
+  type: 'test'
+  ...
+# Subtest: only the current source can report natural completion
+ok 128 - only the current source can report natural completion
+  ---
+  duration_ms: 0.120125
+  type: 'test'
+  ...
+# Subtest: disposal closes the context and invalidates a pending read
+ok 129 - disposal closes the context and invalidates a pending read
+  ---
+  duration_ms: 6.342416
+  type: 'test'
+  ...
+# Subtest: tempo changes preserve position through pause, resume and seeking
+ok 130 - tempo changes preserve position through pause, resume and seeking
+  ---
+  duration_ms: 0.547458
+  type: 'test'
+  ...
+# Subtest: three-band EQ uses the intended signal chain, clamps gain and returns a state copy
+ok 131 - three-band EQ uses the intended signal chain, clamps gain and returns a state copy
+  ---
+  duration_ms: 4.26325
+  type: 'test'
+  ...
+# Subtest: the same track keeps tempo and EQ after stop; a different track resets both
+ok 132 - the same track keeps tempo and EQ after stop; a different track resets both
+  ---
+  duration_ms: 0.864041
+  type: 'test'
+  ...
+# Subtest: shared buffer lookup happens after gesture resume and replay after stop reuses cached PCM
+ok 133 - shared buffer lookup happens after gesture resume and replay after stop reuses cached PCM
+  ---
+  duration_ms: 5.40075
+  type: 'test'
+  ...
+# Subtest: cancelling an audition does not cancel a shared decode or allow stale autoplay
+ok 134 - cancelling an audition does not cancel a shared decode or allow stale autoplay
+  ---
+  duration_ms: 2.212458
+  type: 'test'
+  ...
+# Subtest: a stale shared-cache rejection does not affect a later successful audition
+ok 135 - a stale shared-cache rejection does not affect a later successful audition
+  ---
+  duration_ms: 4.214584
+  type: 'test'
+  ...
+# Subtest: pinned baken fixture imports Japanese metadata, folder/playlist order and empty playlists without audio
+ok 136 - pinned baken fixture imports Japanese metadata, folder/playlist order and empty playlists without audio
+  ---
+  duration_ms: 3.086709
+  type: 'test'
+  ...
+# Subtest: track identity is stable on repeat and isolated between devices even when raw IDs are identical
+ok 137 - track identity is stable on repeat and isolated between devices even when raw IDs are identical
+  ---
+  duration_ms: 1.738125
+  type: 'test'
+  ...
+# Subtest: ANLZ existing waveform, variable beat grid and named eight-slot hot cues transfer without analysis
+ok 138 - ANLZ existing waveform, variable beat grid and named eight-slot hot cues transfer without analysis
+  ---
+  duration_ms: 3.861792
+  type: 'test'
+  ...
+# Subtest: old DAT-only cache preserves legacy memory loop and rejects analysis for another audio path
+ok 139 - old DAT-only cache preserves legacy memory loop and rejects analysis for another audio path
+  ---
+  duration_ms: 2.293916
+  type: 'test'
+  ...
+# Subtest: malformed table chains, row pointers, strings and unsupported inputs fail boundedly
+ok 140 - malformed table chains, row pointers, strings and unsupported inputs fail boundedly
+  ---
+  duration_ms: 4.568041
+  type: 'test'
+  ...
+# Subtest: deleted row slots are ignored even when their pointer contains garbage
+ok 141 - deleted row slots are ignored even when their pointer contains garbage
+  ---
+  duration_ms: 1.500958
+  type: 'test'
+  ...
+# Subtest: unsafe device paths and corrupt ANLZ bounds are rejected
+ok 142 - unsafe device paths and corrupt ANLZ bounds are rejected
+  ---
+  duration_ms: 0.469125
+  type: 'test'
+  ...
+# Subtest: short extended cue records and unknown tagged sections are accepted without guessing missing fields
+ok 143 - short extended cue records and unknown tagged sections are accepted without guessing missing fields
+  ---
+  duration_ms: 0.243541
+  type: 'test'
+  ...
+# Subtest: playlist cycles and orphan references are rejected before any library mutation
+ok 144 - playlist cycles and orphan references are rejected before any library mutation
+  ---
+  duration_ms: 0.881167
+  type: 'test'
+  ...
+# Subtest: anonymous desktop cache paths require an explicit database-path association to be attached
+ok 145 - anonymous desktop cache paths require an explicit database-path association to be attached
+  ---
+  duration_ms: 0.795083
+  type: 'test'
+  ...
+# Subtest: master database remains the cue authority even when local ANLZ lists are empty or stale
+ok 146 - master database remains the cue authority even when local ANLZ lists are empty or stale
+  ---
+  duration_ms: 0.520458
+  type: 'test'
+  ...
+# Subtest: imports Unicode metadata, source location, variable tempo, 8 hot cues, memory cues and colored loops
+ok 147 - imports Unicode metadata, source location, variable tempo, 8 hot cues, memory cues and colored loops
+  ---
+  duration_ms: 20.426958
+  type: 'test'
+  ...
+# Subtest: same basename at different locations gets different IDs; Location-key playlists resolve canonical local URLs
+ok 148 - same basename at different locations gets different IDs; Location-key playlists resolve canonical local URLs
+  ---
+  duration_ms: 5.6165
+  type: 'test'
+  ...
+# Subtest: rejects malformed XML, DTD/entities, unknown processing instructions and invalid XML characters
+ok 149 - rejects malformed XML, DTD/entities, unknown processing instructions and invalid XML characters
+  ---
+  duration_ms: 2.928042
+  type: 'test'
+  ...
+# Subtest: rejects malformed metadata and dangling references instead of silently dropping prepared information
+ok 150 - rejects malformed metadata and dangling references instead of silently dropping prepared information
+  ---
+  duration_ms: 8.91725
+  type: 'test'
+  ...
+# Subtest: never accepts remote URLs or malformed file URLs
+ok 151 - never accepts remote URLs or malformed file URLs
+  ---
+  duration_ms: 2.620875
+  type: 'test'
+  ...
+# Subtest: preserves fractional last-second marks from whole-second TotalTime; handles unanalyzed tracks without guessing BPM
+ok 152 - preserves fractional last-second marks from whole-second TotalTime; handles unanalyzed tracks without guessing BPM
+  ---
+  duration_ms: 1.850458
+  type: 'test'
+  ...
+# Subtest: same-name playlists remain distinct and empty folders produce a visible warning
+ok 153 - same-name playlists remain distinct and empty folders produce a visible warning
+  ---
+  duration_ms: 0.807541
+  type: 'test'
+  ...
+# Subtest: independently generated master.db decrypts and imports hierarchical metadata with exact source paths
+ok 154 - independently generated master.db decrypts and imports hierarchical metadata with exact source paths
+  ---
+  duration_ms: 83.418416
+  type: 'test'
+  ...
+# Subtest: OneLibrary encrypted database imports without a server or WASM and autodetects its key
+ok 155 - OneLibrary encrypted database imports without a server or WASM and autodetects its key
+  ---
+  duration_ms: 148.104875
+  type: 'test'
+  ...
+# Subtest: verifies every encrypted page MAC and rejects tampering, truncation and wrong keys
+ok 156 - verifies every encrypted page MAC and rejects tampering, truncation and wrong keys
+  ---
+  duration_ms: 197.671292
+  type: 'test'
+  ...
+# Subtest: reads pinned upstream independently authored SQLCipher fixture including overflow and Unicode
+ok 157 - reads pinned upstream independently authored SQLCipher fixture including overflow and Unicode
+  ---
+  duration_ms: 52.836875
+  type: 'test'
+  ...
+# Subtest: rejects malicious SQLite b-trees, page bounds, invalid UTF8 and nonlocal traversal paths
+ok 158 - rejects malicious SQLite b-trees, page bounds, invalid UTF8 and nonlocal traversal paths
+  ---
+  duration_ms: 1.793375
+  type: 'test'
+  ...
+# Subtest: rejects playlist reference corruption/cycles and preserves unknown BPM instead of guessing
+ok 159 - rejects playlist reference corruption/cycles and preserves unknown BPM instead of guessing
+  ---
+  duration_ms: 1.544416
+  type: 'test'
+  ...
+# Subtest: schema parser handles quoting, commas inside defaults and table constraints
+ok 160 - schema parser handles quoting, commas inside defaults and table constraints
+  ---
+  duration_ms: 0.083875
+  type: 'test'
+  ...
+# Subtest: master database is authoritative for memory cues, active loops and hot A through H (Kind4 is not D)
+ok 161 - master database is authoritative for memory cues, active loops and hot A through H (Kind4 is not D)
+  ---
+  duration_ms: 1.551958
+  type: 'test'
+  ...
+# Subtest: master tombstones are omitted and fractional endpoint in the final metadata second is preserved
+ok 162 - master tombstones are omitted and fractional endpoint in the final metadata second is preserved
+  ---
+  duration_ms: 0.590625
+  type: 'test'
+  ...
+# Subtest: a secondary touch controls the full range, with input changes and one commit
+ok 163 - a secondary touch controls the full range, with input changes and one commit
+  ---
+  duration_ms: 3.240042
+  type: 'test'
+  ...
+# Subtest: another finger cannot move or release the captured slider
+ok 164 - another finger cannot move or release the captured slider
+  ---
+  duration_ms: 0.745125
+  type: 'test'
+  ...
+# Subtest: decimal and negative ranges round to valid steps and clamp beyond both ends
+ok 165 - decimal and negative ranges round to valid steps and clamp beyond both ends
+  ---
+  duration_ms: 0.268792
+  type: 'test'
+  ...
+# Subtest: pen input and RTL reverse the track correctly; step any stays continuous
+ok 166 - pen input and RTL reverse the track correctly; step any stays continuous
+  ---
+  duration_ms: 0.089709
+  type: 'test'
+  ...
+# Subtest: pointer cancellation retains the last input value and commits only once
+ok 167 - pointer cancellation retains the last input value and commits only once
+  ---
+  duration_ms: 0.247167
+  type: 'test'
+  ...
+# Subtest: focus, viewport, scrolling and hidden-page changes release active touches
+ok 168 - focus, viewport, scrolling and hidden-page changes release active touches
+  ---
+  duration_ms: 0.346542
+  type: 'test'
+  ...
+# Subtest: cancel and dispose are idempotent; unchanged gestures do not emit a commit
+ok 169 - cancel and dispose are idempotent; unchanged gestures do not emit a commit
+  ---
+  duration_ms: 0.310125
+  type: 'test'
+  ...
+# Subtest: mouse and keyboard behavior remain native, and invalid or disabled controls are ignored
+ok 170 - mouse and keyboard behavior remain native, and invalid or disabled controls are ignored
+  ---
+  duration_ms: 0.416708
+  type: 'test'
+  ...
+# Subtest: separate sliders accept simultaneous touches independently
+ok 171 - separate sliders accept simultaneous touches independently
+  ---
+  duration_ms: 0.652583
+  type: 'test'
+  ...
+# Subtest: rapid hot-cue saves merge against the last persisted track instead of overwriting pads
+ok 172 - rapid hot-cue saves merge against the last persisted track instead of overwriting pads
+  ---
+  duration_ms: 2.355417
+  type: 'test'
+  ...
+# Subtest: a rejected write does not block the next save or an unrelated track
+ok 173 - a rejected write does not block the next save or an unrelated track
+  ---
+  duration_ms: 0.7955
+  type: 'test'
+  ...
+# Subtest: deletion follows pending saves and cannot be undone by an older delayed write
+ok 174 - deletion follows pending saves and cannot be undone by an older delayed write
+  ---
+  duration_ms: 0.168125
+  type: 'test'
+  ...
+# Subtest: rekordbox XML preserves titles, cues, BPM/grid and playlist order with escaped attributes
+ok 175 - rekordbox XML preserves titles, cues, BPM/grid and playlist order with escaped attributes
+  ---
+  duration_ms: 2.319125
+  type: 'test'
+  ...
+# Subtest: unsupported library data is rejected before a writer can run
+ok 176 - unsupported library data is rejected before a writer can run
+  ---
+  duration_ms: 0.388791
+  type: 'test'
+  ...
+# Subtest: audio file resolution rejects ambiguous names, symlinks and source-folder escapes
+ok 177 - audio file resolution rejects ambiguous names, symlinks and source-folder escapes
+  ---
+  duration_ms: 68.868
+  type: 'test'
+  ...
+# Subtest: binary inspectors reject truncated data and unsafe paths
+ok 178 - binary inspectors reject truncated data and unsafe paths
+  ---
+  duration_ms: 1.403959
+  type: 'test'
+  ...
+# Subtest: real baken CDJ-3000 export: PDB/ANLZ/cues/playlist order and audio hashes round-trip
+ok 179 - real baken CDJ-3000 export: PDB/ANLZ/cues/playlist order and audio hashes round-trip # SKIP
+  ---
+  duration_ms: 0.517208
+  type: 'test'
+  ...
+# Subtest: XML export keeps variable TEMPO, eight cues, named colored loops and nested playlist paths
+ok 180 - XML export keeps variable TEMPO, eight cues, named colored loops and nested playlist paths
+  ---
+  duration_ms: 2.065375
+  type: 'test'
+  ...
+# Subtest: real ANLZ carry-over keeps waveform/grid bytes, updates cues, handles old caches, and never guesses basenames
+ok 181 - real ANLZ carry-over keeps waveform/grid bytes, updates cues, handles old caches, and never guesses basenames # SKIP
+  ---
+  duration_ms: 0.082458
+  type: 'test'
+  ...
+# Subtest: cue readback rejects a lost color and accepts nearest device palette color
+ok 182 - cue readback rejects a lost color and accepts nearest device palette color
+  ---
+  duration_ms: 0.497208
+  type: 'test'
+  ...
+# Subtest: fractional-duration tail keeps BPM, beat number and ordering validation
+ok 183 - fractional-duration tail keeps BPM, beat number and ordering validation
+  ---
+  duration_ms: 1.830041
+  type: 'test'
+  ...
+# Subtest: vendored SoundTouch files match upstream hashes after the documented build transformation
+ok 184 - vendored SoundTouch files match upstream hashes after the documented build transformation
+  ---
+  duration_ms: 111.361667
+  type: 'test'
+  ...
+# Subtest: deduplicates generation, reuses RAM and transfers only bounded owned PCM copies
+ok 185 - deduplicates generation, reuses RAM and transfers only bounded owned PCM copies
+  ---
+  duration_ms: 140.376208
+  type: 'test'
+  ...
+# Subtest: serializes generation, invalidates changed dimensions and bounds LRU memory
+ok 186 - serializes generation, invalidates changed dimensions and bounds LRU memory
+  ---
+  duration_ms: 4.947042
+  type: 'test'
+  ...
+# Subtest: delete during pending work prevents RAM or disk resurrection and permits a new request
+ok 187 - delete during pending work prevents RAM or disk resurrection and permits a new request
+  ---
+  duration_ms: 19.428792
+  type: 'test'
+  ...
+# Subtest: clear deletes derived disk records and pending jobs cannot repopulate them
+ok 188 - clear deletes derived disk records and pending jobs cannot repopulate them
+  ---
+  duration_ms: 25.968334
+  type: 'test'
+  ...
+# Subtest: dispose preserves completed persistent data, fresh instances reuse it, fingerprint changes regenerate
+ok 189 - dispose preserves completed persistent data, fresh instances reuse it, fingerprint changes regenerate
+  ---
+  duration_ms: 3.604083
+  type: 'test'
+  ...
+# Subtest: optional persistent storage errors fall back to RAM without failing a waveform
+ok 190 - optional persistent storage errors fall back to RAM without failing a waveform
+  ---
+  duration_ms: 2.414
+  type: 'test'
+  ...
+# Subtest: failed workers release queues; disposal cancels active and queued requests safely
+ok 191 - failed workers release queues; disposal cancels active and queued requests safely
+  ---
+  duration_ms: 6.914958
+  type: 'test'
+  ...
+# Subtest: malformed audio and options are rejected before retaining work
+ok 192 - malformed audio and options are rejected before retaining work
+  ---
+  duration_ms: 2.502125
+  type: 'test'
+  ...
+# Subtest: short transients, both polarities and the final sample survive 150 Hz envelopes
+ok 193 - short transients, both polarities and the final sample survive 150 Hz envelopes
+  ---
+  duration_ms: 22.832125
+  type: 'test'
+  ...
+# Subtest: stereo anti-phase retains extrema and all envelope work leaves PCM intact
+ok 194 - stereo anti-phase retains extrema and all envelope work leaves PCM intact
+  ---
+  duration_ms: 4.30775
+  type: 'test'
+  ...
+# Subtest: low, mid and high tones make their corresponding envelope dominant
+ok 195 - low, mid and high tones make their corresponding envelope dominant
+  ---
+  duration_ms: 12.677166
+  type: 'test'
+  ...
+# Subtest: chunk boundaries preserve the same waveform and filter state as one pass
+ok 196 - chunk boundaries preserve the same waveform and filter state as one pass
+  ---
+  duration_ms: 7.348375
+  type: 'test'
+  ...
+# Subtest: silence stays silent, nonfinite samples are sanitized, clipping stays bounded
+ok 197 - silence stays silent, nonfinite samples are sanitized, clipping stays bounded
+  ---
+  duration_ms: 3.278916
+  type: 'test'
+  ...
+# Subtest: limited frame budgets cover the complete track and expose reduced resolution
+ok 198 - limited frame budgets cover the complete track and expose reduced resolution
+  ---
+  duration_ms: 1.291792
+  type: 'test'
+  ...
+# Subtest: rejects incomplete chunks, invalid formats and malformed cache envelopes
+ok 199 - rejects incomplete chunks, invalid formats and malformed cache envelopes
+  ---
+  duration_ms: 0.592208
+  type: 'test'
+  ...
+# Subtest: centered detail windows retain their span at track edges
+ok 200 - centered detail windows retain their span at track edges
+  ---
+  duration_ms: 1.899625
+  type: 'test'
+  ...
+# Subtest: pointer coordinates seek within the actual visible time range
+ok 201 - pointer coordinates seek within the actual visible time range
+  ---
+  duration_ms: 0.191209
+  type: 'test'
+  ...
+# Subtest: fallback beat grids respect beatOffset and include range-edge beats
+ok 202 - fallback beat grids respect beatOffset and include range-edge beats
+  ---
+  duration_ms: 0.224125
+  type: 'test'
+  ...
+# Subtest: variable tempo boundaries belong to the new meter and beat phase without duplication
+ok 203 - variable tempo boundaries belong to the new meter and beat phase without duplication
+  ---
+  duration_ms: 0.20425
+  type: 'test'
+  ...
+# Subtest: decimal boundaries do not duplicate floating-point near-identical beats
+ok 204 - decimal boundaries do not duplicate floating-point near-identical beats
+  ---
+  duration_ms: 0.143875
+  type: 'test'
+  ...
+# Subtest: late windows jump directly to their beat index and retain bar phase
+ok 205 - late windows jump directly to their beat index and retain bar phase
+  ---
+  duration_ms: 0.141083
+  type: 'test'
+  ...
+# Subtest: beat grids are capped, tolerate absent metadata and do not mutate tempo entries
+ok 206 - beat grids are capped, tolerate absent metadata and do not mutate tempo entries
+  ---
+  duration_ms: 1.500209
+  type: 'test'
+  ...
+# Subtest: one-frame transients survive per-device-pixel aggregation in every interval
+ok 207 - one-frame transients survive per-device-pixel aggregation in every interval
+  ---
+  duration_ms: 16.44175
+  type: 'test'
+  ...
+# Subtest: frameCount / duration controls time alignment even when nominal FPS differs
+ok 208 - frameCount / duration controls time alignment even when nominal FPS differs
+  ---
+  duration_ms: 0.381375
+  type: 'test'
+  ...
+# Subtest: asymmetric positive and negative peaks retain their actual envelope
+ok 209 - asymmetric positive and negative peaks retain their actual envelope
+  ---
+  duration_ms: 0.388625
+  type: 'test'
+  ...
+# Subtest: frequency layers use red, gray and white and silence stays silent
+ok 210 - frequency layers use red, gray and white and silence stays silent
+  ---
+  duration_ms: 0.130167
+  type: 'test'
+  ...
+# Subtest: legacy peaks retain brief transients without slicing or spreading arrays
+ok 211 - legacy peaks retain brief transients without slicing or spreading arrays
+  ---
+  duration_ms: 9.507667
+  type: 'test'
+  ...
+# Subtest: DPR is capped at two and stopped equivalent inputs do not repaint
+ok 212 - DPR is capped at two and stopped equivalent inputs do not repaint
+  ---
+  duration_ms: 2.10925
+  type: 'test'
+  ...
+# Subtest: revision and replacement data invalidate geometry while caches stay per canvas
+ok 213 - revision and replacement data invalidate geometry while caches stay per canvas
+  ---
+  duration_ms: 0.317
+  type: 'test'
+  ...
+# Subtest: moving the overview playhead reuses aggregated columns without scanning source frames
+ok 214 - moving the overview playhead reuses aggregated columns without scanning source frames
+  ---
+  duration_ms: 2.424833
+  type: 'test'
+  ...
+# Subtest: markers, beat lines and loops are restricted to the visible window
+ok 215 - markers, beat lines and loops are restricted to the visible window
+  ---
+  duration_ms: 0.609291
+  type: 'test'
+  ...
+# Subtest: overview omits labels and track-end playhead remains inside the canvas
+ok 216 - overview omits labels and track-end playhead remains inside the canvas
+  ---
+  duration_ms: 0.107333
+  type: 'test'
+  ...
+# Subtest: hidden, missing-context and empty waveforms are safe without false cache hits
+ok 217 - hidden, missing-context and empty waveforms are safe without false cache hits
+  ---
+  duration_ms: 0.075917
+  type: 'test'
+  ...
+1..217
+# tests 217
+# suites 0
+# pass 215
+# fail 0
+# cancelled 0
+# skipped 2
+# todo 0
+# duration_ms 6200.117586

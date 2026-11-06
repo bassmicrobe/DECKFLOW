@@ -1,5 +1,5 @@
-import {databaseBytes, sourceDigest, sourceFileStamp, normalizeSourcePath} from './library-source.js?v=7ede21fefddd1339';
-import {isAudioFile} from './file-drop.js?v=7ede21fefddd1339';
+import {databaseBytes, sourceDigest, sourceFileStamp, normalizeSourcePath} from './library-source.js?v=97faa0ed72231add';
+import {isAudioFile} from './file-drop.js?v=97faa0ed72231add';
 const pause = () => new Promise(resolve=>setTimeout(resolve,0));
 const preparation = track => JSON.stringify({bpm:track.bpm,beatOffset:track.beatOffset||0,cue:track.cue||0,
   hotcues:track.hotcues??Array(8).fill(null),tempos:track.tempos??[],positionMarks:track.positionMarks??[]});
@@ -58,13 +58,14 @@ export async function cacheSourceLibrary({library,index,candidate,sources=[],sou
     const result=stored??next;existing.set(result.id,result);onTrack(result);return result;
   };
   signal?.throwIfAborted();
-  const imported=await library.importTracks(parsed.tracks,parsed.playlists);
-  for (const track of parsed.tracks) if (!existing.has(track.id)) existing.set(track.id,track);
   const source={id,cacheVersion:1,label:index.label,databasePath:candidate.path,kind:candidate.kind,digest,parsed,trackIds:parsed.tracks.map(track=>track.id),audioStamps:{...previous?.audioStamps},
     analysisExtensions:{...previous?.analysisExtensions},preparationHashes:{...previous?.preparationHashes},updatedAt:Date.now(),cachedAudio:0};
+  // Register the source and its metadata together. A full source list or a
+  // failed reference write must not leave orphan tracks before audio copying.
+  const imported=await library.importTracks(parsed.tracks,parsed.playlists,source);
+  for (const track of parsed.tracks) if (!existing.has(track.id)) existing.set(track.id,track);
   const result={...imported,metadataCached:!!cached,copied:0,reused:0,missing:0,warnings:[...(parsed.warnings||[])]};
-  // Store the reference even when a later file fails or the user cancels; completed tracks remain usable.
-  await library.putSource(source);
+  // Later cancellation keeps the registered source and completed tracks usable.
   try {
     await onMetadata();
     let count=0;

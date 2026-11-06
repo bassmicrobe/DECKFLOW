@@ -9,6 +9,7 @@ DECKFLOW includes or invokes the following third-party software. The licenses fo
 - License: Mozilla Public License 2.0.
 - Copyright notices, complete MPL-2.0, corresponding TypeScript source, distribution provenance and integrity are included in `dist/vendor/soundtouchjs/`.
 - Runtime files are served locally from the same distribution; no external CDN is required.
+- DECKFLOW's build adds a cache-version query to the `./constants.js` import in `SoundTouchNode.js`. The dependency notice and provenance describe this transformation and how to verify the unchanged upstream source and DSP bytes.
 - The covered source remains available under MPL-2.0. Modified covered files must retain applicable notices and corresponding source availability. This is not an MIT-only dependency.
 
 ## baken 4.10.0
