@@ -15,15 +15,15 @@
     <header class="topbar">
       <a class="wordmark" href="./" aria-label="DECKFLOW ホーム"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M4 7h11v5H9v8h6v5H4zM18 7h10v5h-5v3h5v5h-5v5h-5z"/></svg><span>DECKFLOW<span class="wordmark-sub">YOUR NEXT SET STARTS HERE</span></span></a>
       <nav class="workspace-tabs" aria-label="ワークスペース">
-        <button class="tab active" data-view="play" aria-current="page">プレイ</button>
-        <button class="tab" data-view="library">ライブラリ</button>
+        <button class="tab active" data-view="library" aria-current="page">楽曲管理</button>
+        <button class="tab" data-view="play">DJプレイ</button>
         <button class="tab" data-view="mapping">アサイン<span class="key-indicator" id="mapping-count">5</span></button>
       </nav>
       <div class="top-actions"><span class="local-badge"><i></i> LOCAL</span><button class="button primary compact" id="import-top">＋ 音源を追加</button></div>
     </header>
 
     <main>
-      <section id="play-view" class="view active" aria-label="DJプレイ">
+      <section id="play-view" class="view" aria-label="DJプレイ">
         <div class="section-heading"><div><span class="eyebrow">WORKSPACE / 01</span><h1>流れをつくろう。</h1></div><div class="session-info"><span id="audio-status">音声待機中</span><span class="prototype-badge">WEB PROTOTYPE</span></div></div>
         <div class="decks" id="decks"></div>
         <section class="mixer" aria-label="ミキサー">
@@ -35,10 +35,12 @@
       </section>
 
       <section class="library-section" id="library-section" aria-label="音楽ライブラリ">
+        <div class="library-intro" id="library-intro"><span class="eyebrow">LIBRARY / ANALYSIS</span><h1>楽曲管理・解析</h1><p>音源を追加してBPMを解析。プレイリストを整えて、次のセットを準備しましょう。</p></div>
         <div class="library-heading"><div><span class="eyebrow">COLLECTION</span><h2>あなたのレコード箱<span id="track-count">0 TRACKS</span></h2></div><div class="library-actions"><button class="button subtle compact" id="demo-button">デモ音源を試す</button><button class="button subtle compact" id="export-library">ライブラリ保存 ↗</button><button class="button subtle compact" id="usb-info">USB書き出し</button></div></div>
+        <p class="library-drop-hint">音源をこの画面にドロップ、または「音源を追加」から選択。複数の曲をまとめて解析できます。</p>
         <div class="library-toolbar"><div class="playlist-tabs" id="playlist-tabs"></div><button class="text-button" id="new-playlist">＋ プレイリスト</button><label class="search"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="m12 12 5 5"/></svg><input id="search" placeholder="曲名・アーティストで検索" type="search" autocomplete="off" aria-label="曲名・アーティストで検索"></label><label class="sort"><span class="sr-only">曲の並び順</span><select id="sort"><option value="added">追加順</option><option value="bpm">BPM順</option><option value="title">曲名順</option></select></label></div>
         <div class="library-table-wrap"><table class="library-table"><thead><tr><th class="track-index">#</th><th>TRACK / ARTIST</th><th class="wave-cell">WAVEFORM</th><th><button class="text-button" id="sort-bpm">BPM ↕</button></th><th>TIME</th><th class="load-heading">LOAD TO DECK</th><th><span class="sr-only">曲の操作</span></th></tr></thead><tbody id="track-list"></tbody></table></div>
-        <div class="empty-state" id="empty-library"><svg viewBox="0 0 72 72" aria-hidden="true"><path d="M12 25h48v34H12zM19 25v-9h34v9M26 16V8h20v8M20 36h32M20 45h21"/></svg><div><h3>次のセットは、ここから。</h3><p>音源を追加してBPMを解析。<br>曲の「A」「B」をタップするとデッキに読み込めます。</p><button class="button primary" id="import-empty">＋ 最初の曲を追加</button></div></div>
+        <div class="empty-state" id="empty-library"><svg viewBox="0 0 72 72" aria-hidden="true"><path d="M12 25h48v34H12zM19 25v-9h34v9M26 16V8h20v8M20 36h32M20 45h21"/></svg><div><h3>次のセットは、ここから。</h3><p>音源ファイルをここへドラッグ＆ドロップ。<br>iPadでは「最初の曲を追加」からファイルを選べます。</p><button class="button primary" id="import-empty">＋ 最初の曲を追加</button></div></div>
         <div class="library-footer"><span id="library-status">MP3・WAV・AACなど、ブラウザで再生できる音源に対応</span><span id="storage-status">端末内に保存</span></div>
       </section>
 
@@ -53,6 +55,7 @@
     </main>
     <footer class="app-footer"><span class="footer-brand">DECKFLOW</span><span>PREPARE. CONNECT. PLAY.</span><span>PROTOTYPE 0.1</span></footer>
   </div>
+  <div id="file-drop-overlay" class="file-drop-overlay" role="status" aria-live="polite" hidden><div class="drop-card"><strong class="drop-title">音源をドロップ</strong><p class="drop-copy">曲をライブラリに追加して、BPMを解析します。<br>MP3・WAV・AACなどの音源に対応</p></div></div>
   <input type="file" id="audio-files" accept="audio/*,.mp3,.wav,.aif,.aiff,.m4a,.aac,.flac,.ogg" multiple hidden>
   <input type="file" id="profile-file" accept="application/json,.json" hidden>
   <dialog id="help-dialog"><div class="dialog-heading"><span class="eyebrow">DECKFLOW / GUIDE</span><button class="icon-button" data-close-dialog aria-label="閉じる">×</button></div><h2>セットの準備から、プレイまで。</h2><ol><li>「音源を追加」で端末内の曲を選びます。</li><li>曲のBPMを解析し、ライブラリに保存します。</li><li>「A」「B」でデッキへ読み込み、再生をタップします。</li><li>アサイン画面でキーや対応ブラウザのMIDI機器を割り当てられます。</li></ol><div class="guide-note"><strong>この試作でできること</strong><p>2デッキ、EQ、テンポ調整、BPM同期、HOT CUE、ループ、プレイリスト、MIDI Learn、キーアサイン。音源はアップロードせず端末内で処理・保存します。</p><strong>現在の対応範囲</strong><p>KEY LOCKは音程を保ったテンポ変更です。利用できない環境ではPITCH LINKと表示し、テンポと音程が連動します。SYNCはBPMを合わせる機能です。解析結果は手動修正できます。ヘッドホンCUEの独立出力とiPad単体のUSB書き出しは未対応です。Mac補助ツールのUSB生成に対応しますが、CDJ実機確認はこれからです。</p><p>1曲80MB・20分まで。最初は少数曲でお試しください。ブラウザのデータを消すと保存した曲も失われるため、元の音源は保管してください。</p></div><button class="button primary" data-close-dialog>はじめる</button></dialog>

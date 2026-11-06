@@ -3,6 +3,7 @@ import {MappingManager} from './mappings.js';
 import {openLibrary} from './library-store.js';
 import {validateUsbLibrary} from './usb-export.js';
 import {createTrackQueue} from './track-updates.js';
+import {installFileDrop,isAudioFile} from './file-drop.js';
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -30,7 +31,7 @@ let activePlaylist = 'all';
 let mappingGroup = 'all';
 let importing = false;
 let editingTrack = null;
-let view = 'play';
+let view = 'library';
 const trackQueue=createTrackQueue();
 const decks = {a:{trackId:null,pendingTrackId:null,loopBeats:4,loadNonce:0,angle:0},b:{trackId:null,pendingTrackId:null,loopBeats:4,loadNonce:0,angle:0}};
 const engine = new AudioEngine({onEnded:()=>updateDecks(),onStatus:status=>{if(status.message)toast(status.message);updateDecks();}});
@@ -178,7 +179,7 @@ function animate(now){
   requestAnimationFrame(animate);
 }
 
-function setView(next){view=next;$('#play-view').classList.toggle('active',next==='play');$('#mapping-view').classList.toggle('active',next==='mapping');$('#library-section').hidden=next==='mapping';
+function setView(next){view=next;$('#play-view').classList.toggle('active',next==='play');$('#mapping-view').classList.toggle('active',next==='mapping');$('#library-section').hidden=next==='mapping';$('#library-intro').hidden=next!=='library';
   $$('.workspace-tabs .tab').forEach(button=>{const active=button.dataset.view===next;button.classList.toggle('active',active);if(active)button.setAttribute('aria-current','page');else button.removeAttribute('aria-current');});if(next==='play')updateDecks();if(next==='mapping')renderMappings();}
 
 function renderLibrary(){
@@ -207,6 +208,7 @@ function analyze(buffer){
 }
 
 async function importFiles(files){
+  files=Array.from(files);if(!files.length)return;
   if(!library){toast('ライブラリを起動しています。少しお待ちください。');return;}
   if(importing){toast('音源を解析中です。少しお待ちください。');return;}
   importing=true;const controls=[$('#import-top'),$('#import-empty'),$('#demo-button')];controls.forEach(el=>{el.disabled=true;el.classList.add('importing');});
@@ -215,13 +217,13 @@ async function importFiles(files){
     const file=files[i];const fingerprint=`${file.name}|${file.size}|${file.lastModified||0}`;
     if(tracks.some(t=>t.fingerprint===fingerprint)){skipped++;continue;}
     $('#library-status').textContent=`解析中 ${i+1} / ${files.length} — ${file.name}`;
-    try {if(file.size>80*1024*1024)throw new Error('1曲80 MB以内の音源を選んでください。');let buffer=await engine.decode(await file.arrayBuffer());const result=await analyze(buffer);buffer=null;
+    try {if(!isAudioFile(file))throw new Error('音源ファイルを選んでください（MP3・WAV・AACなど）。');if(file.size>80*1024*1024)throw new Error('1曲80 MB以内の音源を選んでください。');let buffer=await engine.decode(await file.arrayBuffer());const result=await analyze(buffer);buffer=null;
       const stem=file.name.replace(/\.[^.]+$/,'');const split=stem.split(' - ');const title=split.length>1?split.slice(1).join(' - '):stem;const artist=split.length>1?split[0]:'';
       const metadata={id:uid(),title,artist,bpm:result.bpm,confidence:result.confidence,duration:result.duration,beatOffset:result.beatOffset||0,peaks:result.peaks,cue:0,hotcues:[null,null,null,null],filename:file.name,fingerprint,addedAt:Date.now()};
       await library.putTrack(metadata,file);tracks.push(metadata);added++;renderLibrary();
     } catch(error){errors.push(`${file.name}: ${error.message}`);}
   }
-  $('#library-status').textContent=errors.length?`${errors.length}曲を読み込めませんでした。${errors[0]}`:`${added}曲を追加${skipped?`、重複${skipped}曲をスキップ`:''}。音源と解析結果は${library.persistent?'この端末に保存しました':'このセッションだけで保持しています'}。`;
+  $('#library-status').textContent=errors.length?`${added}曲を追加${skipped?`、重複${skipped}曲をスキップ`:''}。${errors.length}ファイルを読み込めませんでした。${errors[0]}`:`${added}曲を追加${skipped?`、重複${skipped}曲をスキップ`:''}。音源と解析結果は${library.persistent?'この端末に保存しました':'このセッションだけで保持しています'}。`;
   if(errors.length)toast(errors[0]);else if(added)toast(`${added}曲をライブラリに追加しました。`);else if(skipped)toast('追加済みの音源でした。');
   await storageInfo();
   } finally {importing=false;controls.forEach(el=>{el.disabled=false;el.classList.remove('importing');});$('#audio-files').value='';}
@@ -252,6 +254,10 @@ function renderMappings(){
 async function storageInfo(){try{const estimate=await navigator.storage?.estimate?.();$('#storage-status').textContent=library.persistent?`端末内に保存${estimate?.usage?` / ${(estimate.usage/1024/1024).toFixed(1)} MB`:''}`:'一時保存（このセッションのみ）';}catch{}}
 
 function events(){
+  installFileDrop({target:document,host:window,onActive:active=>{$('#file-drop-overlay').hidden=!active;},onFiles:files=>{
+    if(!files.length){toast('フォルダではなく、音源ファイルをドロップしてください。');return;}
+    setView('library');importFiles(files).catch(report);
+  }});
   document.addEventListener('click',event=>{const target=event.target.closest('button');if(!target)return;
     if(target.dataset.action)dispatch(target.dataset.action).catch(report);
     if(target.dataset.view)setView(target.dataset.view);
@@ -311,7 +317,7 @@ function events(){
 }
 
 async function start(){
-  renderDecks();events();renderMappings();renderMIDIStatus();
+  renderDecks();events();setView('library');renderMappings();renderMIDIStatus();
   for(const id of ['a','b']){mapping.setActionValue(`${id}.tempo`,.5);mapping.setActionValue(`${id}.volume`,.85);for(const band of ['low','mid','high'])mapping.setActionValue(`${id}.eq.${band}`,24/36);}
   mapping.setActionValue('mixer.crossfader',.5);mapping.setActionValue('mixer.master',.8);
   library=await openLibrary();tracks=await library.getTracks();playlists=await library.getPlaylists();renderLibrary();updateDecks();await storageInfo();if(library.warning)toast(library.warning);
