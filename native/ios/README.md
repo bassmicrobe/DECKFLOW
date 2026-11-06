@@ -1,3 +1,5 @@
+> 過去のネイティブ動作検証用コードです。現在のDECKFLOWの開発・提供対象はWebアプリ／PWAで、この構成の機能追加・配布は進めていません。
+
 # DECKFLOW for iPad
 
 SwiftUIのアプリにWeb版の画面と音声エンジンを同梱し、CoreMIDI入力を追加するiPad用シェルです。依存するSwiftパッケージはありません。

@@ -4,7 +4,7 @@
 
 手元の音源を整理・解析し、タッチでもMIDIでもプレイできるDJワークスペース。iPad miniで外に持ち出し、CDJ-3000用USBの準備につなげることを目指しています。
 
-現在は **v0.1 開発版**です。Web版、CoreMIDIを橋渡しするiPadアプリ、Mac用USB生成ツールを収録しています。物理iPad・コントローラー・CDJでの実機検証はまだ完了していません。
+現在は **v0.1 開発版**のWebアプリ／PWAです。CDJ用データの生成にはMac補助ツールを組み合わせます。物理iPad・コントローラー・CDJでの実機検証はまだ完了していません。
 
 ![DECKFLOWの2デッキとタッチプラッター](docs/preview.jpg)
 
@@ -21,7 +21,7 @@ npm run dev
 
 表示されたローカルURLを開くと、最初に**楽曲管理・解析**画面が表示されます。音源ファイルを画面へドラッグ＆ドロップするか、「音源を追加」「デモ音源を試す」から始めます。デモ2曲は端末内で合成するオリジナル音源です。再生は自動では始まりません。
 
-Macのlocalhost URLを別端末のiPadから開くことはできません。iPadではHTTPS配信したWeb版、または同梱配信するiPadアプリを利用してください。
+Macのlocalhost URLを別端末のiPadから開くことはできません。iPadではHTTPS配信したWeb版を利用してください。
 
 音源を追加 → BPMを確認 → 曲の **A / B** でデッキへ読み込み → 「DJプレイ」に切り替えて再生。プラッターは押さえて前後に回すとスクラッチし、離すと押さえる前の再生状態に戻ります。押さえる前が停止中なら停止状態を保ちます。
 
@@ -48,14 +48,13 @@ Macのlocalhost URLを別端末のiPadから開くことはできません。iPa
 | プロファイル | 割り当ての自動保存、JSONによる書き出し／読み込み。連続値はMIDIへ割り当て |
 | オフライン | Service Worker／PWA。初回の資産取得完了後、同じブラウザのローカル音源を利用 |
 | CDJ-3000用生成 | Mac補助ツールでPDB・ANLZ・音源を新規フォルダへ生成。既存ANLZの波形／グリッド引き継ぎとハッシュ照合。iPad単体生成は未実装 |
-| iPadアプリ | SwiftUI／WKWebView＋同梱localhost配信＋CoreMIDI→Web MIDI互換ブリッジ。Simulatorで確認 |
 
 キーボード初期設定: **Q** = A再生、**A** = AのCUE、**P** = B再生、**L** = BのCUE、**G** = クロスフェーダー中央。
 
 ## rekordboxで準備した曲を取り込む
 
 1. rekordboxからコレクションをXML形式で書き出します。
-2. 楽曲管理の **rekordbox XMLを取り込む** で選択するか、XMLを1つドロップします。
+2. 楽曲管理の **rekordbox XMLを取り込む** で選択するか、XMLを1つドロップします。曲がある場合は **ライブラリ操作** の中にあります。
 3. **音源を追加** で元の音源を選びます。同名・長さ・XMLにある場合はサイズを照合し、BPMやCUEを再解析せず関連付けます。同名候補が複数なら曲ごとの **音源を選択** を使います。
 
 取り込み済みの曲と同じプレイリストは再取り込み時にスキップし、DECKFLOWでの編集と保存音源を保持します。音源未選択のままメタデータを整理・保存することもできます。曲情報で取り込んだメモリーCUE／LOOPの名前・位置を確認でき、HOT CUEのループはDJデッキで再生できます。
@@ -66,24 +65,17 @@ XMLには音源・波形本体はありません。Web画面の波形は音源�
 
 ## iPadで使う
 
-Webのタッチ操作と、iPadアプリの機材連携は区別しています。
+DECKFLOWは **Webアプリ／PWA** として開発します。iPadのSafariで開き、タッチと外付けキーボードで操作できます。ホーム画面へ追加すると、アプリのように起動できます。
 
-- SafariのWeb版ではタッチと外付けキーボードを利用できます。Safari自体はWeb MIDIに対応していません。
-- `native/ios` は同じ画面・音源管理・Web Audioを同梱し、CoreMIDIによる入力を追加します。WebViewで包むだけでなく、機材接続処理を実装しています。
-- iPadアプリのビルド・MIDIの仕様は [native/ios/README.md](native/ios/README.md) を参照してください。
-- **ヘッドホンCUEとマスターの独立出力、任意コントローラーの専用HID／ジョグ／LED対応、iPad単体USB生成は未実装**です。通常の音声出力はシステムの出力先を使います。
-- 物理iPad mini 8の遅延・CPU・長時間動作、USBハブ・給電・実コントローラーの組み合わせは未検証です。
-
-```sh
-npm run build
-npm run ios:sync
-```
-
-その後Xcodeで `native/ios/DECKFLOW.xcodeproj` を開きます。実機用の署名チームは利用するApple Developerアカウントで設定します。署名情報や証明書はリポジトリに含めません。
+- 音源とメタデータは端末内へ保存します。初回取得後は、キャッシュ済みの画面・読み込み済みの曲をオフラインで利用できます。
+- 「音源を追加」から「ファイル」内の曲を選択します。大量の曲は少しずつ追加してください。
+- 外部MIDIはWeb MIDI API対応ブラウザ向けです。iPadでの外部MIDI機材接続は現在のWeb版の対応範囲外です。
+- ヘッドホンCUEとマスターの独立出力、iPad単体のCDJ用USB生成は未実装です。USB生成には下記のMac補助ツールを使います。
+- 物理iPadでの音声遅延・CPU負荷・長時間動作は未検証です。
 
 ## CDJ-3000用USB生成
 
-ブラウザの「USB書き出し」は **Macへ渡すライブラリJSON** を保存する入口です。JSON単体はCDJ用ライブラリではなく、音源も含みません。
+ブラウザの「ライブラリ操作 → USB書き出し」は **Macへ渡すライブラリJSON** を保存する入口です。JSON単体はCDJ用ライブラリではなく、音源も含みません。
 
 Macに元音源を用意し、Rust／Cargoを利用して固定版bakenをプロジェクト内へビルドします。
 
@@ -109,10 +101,10 @@ npm run usb:export -- \
 | 音声 | Web Audio API、AudioWorklet、SoundTouchJS |
 | BPM／波形 | Web Worker＋独自解析＋Canvas |
 | データ | IndexedDB、割り当て設定はlocalStorage |
-| 操作 | Pointer Events、Web MIDI、キーボード、iPad CoreMIDIブリッジ |
+| 操作 | Pointer Events、Web MIDI、キーボード |
 | USB | Node.js helper、固定commitのRust製baken |
-| iPad | SwiftUI、WKWebView、Network.framework、CoreMIDI |
-| チェック | Node組み込みtest runner、実DSP処理、実USB writerの読み戻し、XCTest |
+| iPad | Safari／PWA、タッチ、外付けキーボード |
+| チェック | Node組み込みtest runner、実DSP処理、実USB writerの読み戻し |
 
 音源と解析結果はアップロードせず、端末内で処理・保存します。アプリの初回取得と更新には配信元への通信が必要です。
 

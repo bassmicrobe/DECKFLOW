@@ -8,6 +8,7 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" href="./icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./library-ui.css">
   <title>DECKFLOW — 曲を整える。流れをつくる。</title>
 </head>
 <body>
@@ -34,10 +35,10 @@
         <div class="workspace-foot"><span><i class="tiny-dot"></i> 音源はこの端末で処理します</span><button class="text-button" id="show-help">使い方と対応状況 ↗</button></div>
       </section>
 
-      <section class="library-section" id="library-section" aria-label="音楽ライブラリ">
-        <div class="library-intro" id="library-intro"><span class="eyebrow">LIBRARY / ANALYSIS</span><h1>楽曲管理・解析</h1><p>音源を追加してBPMを解析。プレイリストを整えて、次のセットを準備しましょう。</p></div>
-        <div class="library-heading"><div><span class="eyebrow">COLLECTION</span><h2>あなたのレコード箱<span id="track-count">0 TRACKS</span></h2></div><div class="library-actions"><button class="button subtle compact" id="import-xml">rekordbox XMLを取り込む</button><button class="button subtle compact" id="demo-button">デモ音源を試す</button><button class="button subtle compact" id="export-library">ライブラリ保存 ↗</button><button class="button subtle compact" id="usb-info">USB書き出し</button></div></div>
-        <p class="library-drop-hint">音源またはrekordbox XMLをドロップできます。XMLから取り込んだ曲は、元音源を追加するとBPM・CUEを保持したまま関連付けます。</p>
+      <section class="library-section is-empty" id="library-section" aria-label="音楽ライブラリ">
+        <div class="library-intro" id="library-intro"><span class="eyebrow">YOUR LIBRARY</span><h1>楽曲管理</h1><p>曲を整理して、次のセットを準備。</p></div>
+        <div class="library-heading"><h2>コレクション<span id="track-count">0曲</span></h2><div class="library-actions"><details class="library-tools" id="library-tools"><summary>ライブラリ操作</summary><div class="library-tools-menu"><button id="import-xml">rekordbox XMLを取り込む</button><button id="demo-button">デモ音源を試す</button><button id="export-library">ライブラリを保存</button><button id="usb-info">USB書き出し</button></div></details></div></div>
+        <p class="library-drop-hint">音源・rekordbox XMLをドラッグ＆ドロップで追加できます。</p>
         <div class="library-toolbar"><div class="playlist-tabs" id="playlist-tabs"></div><button class="text-button" id="new-playlist">＋ プレイリスト</button><label class="search"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="m12 12 5 5"/></svg><input id="search" placeholder="曲名・アーティストで検索" type="search" autocomplete="off" aria-label="曲名・アーティストで検索"></label><label class="sort"><span class="sr-only">曲の並び順</span><select id="sort"><option value="added">追加順</option><option value="bpm">BPM順</option><option value="title">曲名順</option></select></label></div>
         <section class="library-preview" id="library-preview" aria-label="楽曲の試聴" hidden>
           <div class="preview-buttons"><button id="preview-toggle" class="preview-play" aria-label="試聴を再生" aria-pressed="false">▶</button><button id="preview-stop" class="preview-stop" aria-label="試聴を停止して先頭に戻す" title="停止して先頭に戻す">■</button></div>
@@ -55,8 +56,12 @@
 
         </section>
         <div class="library-table-wrap"><table class="library-table"><thead><tr><th class="track-index">#</th><th>TRACK / ARTIST</th><th class="wave-cell">WAVEFORM</th><th><button class="text-button" id="sort-bpm">BPM ↕</button></th><th>TIME</th><th class="load-heading">LOAD TO DECK</th><th><span class="sr-only">曲の操作</span></th></tr></thead><tbody id="track-list"></tbody></table></div>
-        <div class="empty-state" id="empty-library"><svg viewBox="0 0 72 72" aria-hidden="true"><path d="M12 25h48v34H12zM19 25v-9h34v9M26 16V8h20v8M20 36h32M20 45h21"/></svg><div><h3>次のセットは、ここから。</h3><p>音源ファイルをここへドラッグ＆ドロップ。<br>iPadでは「最初の曲を追加」からファイルを選べます。</p><button class="button primary" id="import-empty">＋ 最初の曲を追加</button></div></div>
-        <div class="library-footer"><span id="library-status">MP3・WAV・AACなど、ブラウザで再生できる音源に対応</span><span id="storage-status">端末内に保存</span></div>
+        <div class="empty-state" id="empty-library">
+          <div class="empty-library-main"><svg viewBox="0 0 72 72" aria-hidden="true"><path d="M12 25h48v34H12zM19 25v-9h34v9M26 16V8h20v8M20 36h32M20 45h21"/></svg><div class="empty-library-copy"><span class="empty-library-label">まだ曲がありません</span><h2>最初の曲を追加しましょう</h2><p>ファイルを選ぶか、ここへドロップ。<br>BPMを解析して、ライブラリに保存します。</p><button class="button primary" id="import-empty">音源を追加</button><span class="empty-library-formats">MP3・WAV・AACなど</span></div></div>
+          <div class="empty-library-alternatives"><div><h3>rekordboxで準備済みなら</h3><p>BPM・CUE・プレイリストを引き継げます。</p><button class="button subtle" id="import-xml-empty">rekordbox XMLを取り込む</button></div><div><h3>まずは操作を試す</h3><p>デモ音源ですぐに使い始められます。</p><button class="text-button" id="demo-empty">デモ音源を試す</button></div></div>
+          <p class="empty-library-local"><i class="tiny-dot"></i>音源はアップロードせず、この端末に保存します。</p>
+        </div>
+        <div class="library-footer"><span id="library-status" role="status" aria-live="polite"></span><span id="storage-status">端末内に保存</span></div>
       </section>
 
       <section id="mapping-view" class="view" aria-label="MIDIとキーボードのアサイン">
@@ -65,7 +70,7 @@
         <div class="mapping-toolbar"><div class="mapping-filters" id="mapping-filters"><button class="pill active" data-group="all">すべて</button><button class="pill" data-group="a">DECK A</button><button class="pill" data-group="b">DECK B</button><button class="pill" data-group="mixer">MIXER</button></div><label class="encoder-mode">ノブの動作<select id="midi-mode"><option value="absolute">通常（絶対値）</option><option value="relative-twos">相対値：2の補数</option><option value="relative-offset">相対値：64中心</option></select></label></div>
         <div id="learn-banner" class="learn-banner" hidden><span id="learn-text"></span><button class="button subtle compact" id="cancel-learn">キャンセル</button></div>
         <div class="mapping-table-wrap"><table class="mapping-table"><thead><tr><th>機能</th><th>割り当て</th><th>LEARN</th></tr></thead><tbody id="mapping-list"></tbody></table></div>
-        <p class="mapping-note">音量・EQなどの連続操作はMIDIで割り当てます。キーは再生・CUEなどのボタン操作に対応。iPad SafariのMIDI接続は未対応で、外部機材の接続には今後iPadアプリ側の実装と検証が必要です。</p>
+        <p class="mapping-note">音量・EQなどの連続操作はMIDI、再生・CUEなどのボタン操作はキーにも割り当てられます。MIDIはWeb MIDI API対応ブラウザで利用できます。iPadではタッチと外付けキーボードで操作できます。</p>
       </section>
     </main>
     <footer class="app-footer"><span class="footer-brand">DECKFLOW</span><span>PREPARE. CONNECT. PLAY.</span><span>PROTOTYPE 0.1</span></footer>

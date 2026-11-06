@@ -191,7 +191,8 @@ function setView(next){if(next!=='library')preview.stop();view=next;$('#play-vie
   $$('.workspace-tabs .tab').forEach(button=>{const active=button.dataset.view===next;button.classList.toggle('active',active);if(active)button.setAttribute('aria-current','page');else button.removeAttribute('aria-current');});if(next==='play')updateDecks();if(next==='mapping')renderMappings();updatePreview();}
 
 function renderLibrary(){
-  $('#track-count').textContent=`${tracks.length} TRACK${tracks.length===1?'':'S'}`;
+  $('#library-section').classList.toggle('is-empty',tracks.length===0);
+  $('#track-count').textContent=`${tracks.length.toLocaleString('ja-JP')}曲`;
   $('#playlist-tabs').innerHTML=`<button class="pill ${activePlaylist==='all'?'active':''}" data-playlist="all">すべての曲</button>`+playlists.map(p=>`<button class="pill ${activePlaylist===p.id?'active':''}" data-playlist="${escapeHTML(p.id)}">${escapeHTML([...(p.folderPath||[]),p.name].join(" / "))} <span>${p.trackIds.length}</span></button>`).join('');
   const query=$('#search').value.trim().toLocaleLowerCase();let filtered=tracks.filter(t=>(`${t.title} ${t.artist}`).toLocaleLowerCase().includes(query));
   const playlist=playlists.find(p=>p.id===activePlaylist);if(playlist)filtered=filtered.filter(t=>playlist.trackIds.includes(t.id));
@@ -278,7 +279,7 @@ function analyze(buffer){
 
 function setImporting(value){
   importing=value;
-  for(const id of ['import-top','import-empty','demo-button','import-xml','choose-xml']){
+  for(const id of ['import-top','import-empty','demo-button','demo-empty','import-xml','import-xml-empty','choose-xml']){
     const el=$(`#${id}`);el.disabled=value;el.classList.toggle('importing',value);
   }
 }
@@ -370,7 +371,7 @@ function events(){
     if(!files.length){toast('フォルダではなく、音源ファイルをドロップしてください。');return;}
     setView('library');const xml=files.filter(f=>/\.xml$/i.test(f.name));if(xml.length){if(xml.length!==1||files.length!==1){toast('XMLは1ファイルずつ取り込み、その後に音源を追加してください。');return;}$('#xml-dialog').showModal();importXml(xml[0]).catch(report);}else importFiles(files).catch(report);
   }});
-  document.addEventListener('click',event=>{const target=event.target.closest('button');if(!target)return;
+  document.addEventListener('click',event=>{const menu=$('#library-tools');if(menu?.open&&(!event.target.closest('#library-tools')||event.target.closest('#library-tools button')))menu.open=false;const target=event.target.closest('button');if(!target)return;
     if(target.dataset.action)dispatch(target.dataset.action).catch(report);
     if(target.dataset.view)setView(target.dataset.view);
     if(target.dataset.load){const value=target.dataset.load;loadDeck(value.slice(0,1),value.slice(2));}
@@ -408,10 +409,10 @@ function events(){
   for(const id of ['import-top','import-empty'])$(`#${id}`).onclick=()=>$('#audio-files').click();
   $('#audio-files').addEventListener('change',e=>importFiles([...e.target.files]).catch(report));
   $('#link-audio-file').addEventListener('change',e=>{const id=relinkTrack;relinkTrack=null;importFiles([...e.target.files],id).catch(report);});
-  $('#import-xml').onclick=()=>$('#xml-dialog').showModal();
+  for(const id of ['import-xml','import-xml-empty'])$(`#${id}`).onclick=()=>$('#xml-dialog').showModal();
   $('#choose-xml').onclick=()=>$('#xml-file').click();
   $('#xml-file').addEventListener('change',e=>importXml(e.target.files[0]).catch(report));
-  $('#demo-button').onclick=()=>importFiles([demoWav(124,0),demoWav(128,1)]).catch(report);
+  for(const id of ['demo-button','demo-empty'])$(`#${id}`).onclick=()=>importFiles([demoWav(124,0),demoWav(128,1)]).catch(report);
   $('#show-help').onclick=()=>$('#help-dialog').showModal();$('#usb-info').onclick=()=>$('#usb-dialog').showModal();
   $('#search').addEventListener('input',renderLibrary);$('#sort').addEventListener('change',renderLibrary);$('#sort-bpm').onclick=()=>{$('#sort').value=$('#sort').value==='bpm'?'added':'bpm';renderLibrary();};
   $('#new-playlist').onclick=async()=>{const name=await askPlaylistName();if(!name)return;const p={id:uid(),name:name.slice(0,80),trackIds:[]};const next=[...playlists,p];try{await library.putPlaylists(next);playlists=next;activePlaylist=p.id;renderLibrary();}catch(error){report(error);}};
@@ -448,7 +449,7 @@ function events(){
   $('#export-profile').onclick=()=>download('deckflow-mappings.json',mapping.exportProfile());$('#import-profile').onclick=()=>$('#profile-file').click();
   $('#profile-file').addEventListener('change',async e=>{const file=e.target.files[0];if(!file)return;try{if(file.size>1024*1024)throw new Error('設定ファイルが大きすぎます。');mapping.importProfile(await file.text());toast('割り当て設定を読み込みました。');}catch(error){report(error);}e.target.value='';});
   $('#reset-profile').onclick=async()=>{if(await askConfirm('MIDI・キーの割り当てを初期状態へ戻しますか？'))mapping.reset();};
-  document.addEventListener('keydown',e=>{if(e.code==='Escape'&&mapping.learning){mapping.cancelLearn();renderMappings();return;}mapping.handleKeyDown(e);});document.addEventListener('keyup',e=>mapping.handleKeyUp(e));
+  document.addEventListener('keydown',e=>{if(e.code==='Escape'&&$('#library-tools')?.open){$('#library-tools').open=false;$('#library-tools summary').focus();return;}if(e.code==='Escape'&&mapping.learning){mapping.cancelLearn();renderMappings();return;}mapping.handleKeyDown(e);});document.addEventListener('keyup',e=>mapping.handleKeyUp(e));
   window.addEventListener('resize',()=>updateDecks());
   window.addEventListener('pagehide',()=>{preview.clear();for(const id of ['a','b'])engine.pause(id);});
 }
