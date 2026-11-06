@@ -127,3 +127,17 @@ JSONのnative保存・共有はソース確認までです。実機での保存�
 - Chromiumで合成ライブラリの一覧・試聴の開始／一時停止・初期画面・読み込みダイアログを確認。選択項目の計算済みスタイルは角丸0px、影なし、背景rgb(34,34,34)、輪郭線rgb(239,83,91)。
 - 390／1024 CSS pxでdocumentの横はみ出しなし。390pxの試聴ボタンは44×44px。表示幅のエミュレーションを解除し、停止中の一覧を `docs/library-preview.png` に記録。
 - `npm run build` 成功（31 runtime assets、412 KiB、offline cache `38bb4c2305687e9a`）。`git diff --check` 成功。表示のみの変更で、音声・取り込み・保存処理は変更していない。物理iPadでの確認は未実施。
+
+## 2026-11-07 — 精細波形・大型プラッター・Docker／Vercel
+
+- 全体波形と2／4／8／16／32秒の拡大波形、位置追従、拍／小節／HOT CUE／ループ表示を追加。全体と拡大のシーク座標を分離し、一覧は55本の棒からCanvasへ変更。管理画面の試聴波形は曲全体を表示し、終端へ直接移動できる。
+- 読み込み済みPCMを再デコードせずWorkerへ最大1 MiBのチャンクで渡し、通常150 frame/sの正負ピークと3帯域を生成。左右逆相を相殺せず、短いピークと末尾も保持。30万frame上限を超える長尺では実時間範囲を保って密度を下げる。BPM／CUE／既存ANLZは変更しない。
+- RAM16 MiB／8件、独立IndexedDB32 MiB／128件のLRUキャッシュ。音源変更・削除・pagehide後の遅延結果を無効化。保存失敗時はRAMと従来波形を利用し、再生は継続。
+- 全体テスト **172 passed、0 failed、0 skipped**（固定bakenを含む）。ピーク保持、逆相、帯域、可変テンポ、長尺での拍位相、縮小集約、同入力の描画省略、Worker／保存失敗、キャッシュ無効化を検証。
+- 実Chromiumの隔離originで逆相4秒音源を生成し600frame、初回generated=1、キャッシュインスタンス破棄後persistentHits=1／generated=0を確認。検証キーは終了時に削除。
+- UIでデモ2曲の詳細波形、8→4秒ズーム、キーボードシーク、再生／停止、プラッターのドラッグ後の位置変更を確認。管理画面では24秒の終端へのシークと停止を確認。console error/warnなし。1280／1024／390 CSS pxで横はみ出しなし。プラッター径は1024幅で256px、390幅で273px。
+- ボタン・入力欄・パネルは直角、黒ベース・赤アクセント。選択は四辺2pxの赤枠。プラッター操作の説明文を除去。色付き波形も赤／灰／白に限定。
+- 配信先で新旧のCSS／JSが混在する事象を確認したため、CSS／アイコンの内容hashに加え、全JavaScript・dynamic import・Worker・Workletを共通graph hashで参照。2回buildの再現性、依存のみの更新伝播、参照欠落時の書き換え防止を5テストで検証。最終build:35 runtime assets／452 KiB、cache `ae8de3133c0e1493`。
+- Dockerは最新コードを隔離Compose projectでbuild／起動しhealthy、uid101、read-onlyを確認。69のprecache URLと30 JS／40依存参照、波形Worker、MIME、cache header、404、nginx -tが成功。検証コンテナとnetworkはdown済み。
+- Vercel用にbuildCommand/outputDirectory/headersを設定しREADMEへ手順を追加。Vercelへの実デプロイは行っていない。
+- 物理iPad／Safariでの音声遅延・長時間安定性は未検証。帯域分離は表示用で、rekordbox内部の解析アルゴリズムを再現するものではない。

@@ -1,15 +1,17 @@
-import {AudioEngine} from './audio-engine.js';
-import {MappingManager} from './mappings.js';
-import {openLibrary} from './library-store.js';
-import {validateUsbLibrary} from './usb-export.js';
-import {createTrackQueue} from './track-updates.js';
-import {installFileDrop,isAudioFile} from './file-drop.js';
-import {PreviewPlayer} from './preview-player.js';
-import {AudioBufferCache} from './audio-buffer-cache.js';
-import {indexFileList,indexDirectory,createSourceIndex,databaseCandidates,createLibraryReader} from './library-source.js';
-import {cacheSourceLibrary} from './source-import.js';
-import {parseRekordboxXml} from './rekordbox-import.js';
-import {findImportedAudio,audioPeaks,tempoAt,barPositions,advanceBeats,relinkMetadata} from './import-audio.js';
+import {AudioEngine} from './audio-engine.js?v=401613a8eaa5242c';
+import {MappingManager} from './mappings.js?v=401613a8eaa5242c';
+import {openLibrary} from './library-store.js?v=401613a8eaa5242c';
+import {validateUsbLibrary} from './usb-export.js?v=401613a8eaa5242c';
+import {createTrackQueue} from './track-updates.js?v=401613a8eaa5242c';
+import {installFileDrop,isAudioFile} from './file-drop.js?v=401613a8eaa5242c';
+import {PreviewPlayer} from './preview-player.js?v=401613a8eaa5242c';
+import {AudioBufferCache} from './audio-buffer-cache.js?v=401613a8eaa5242c';
+import {WaveformCache} from './waveform-cache.js?v=401613a8eaa5242c';
+import {drawWaveform,getWaveformWindow,timeAtWaveformX,waveformBeats} from './waveform-view.js?v=401613a8eaa5242c';
+import {indexFileList,indexDirectory,createSourceIndex,databaseCandidates,createLibraryReader} from './library-source.js?v=401613a8eaa5242c';
+import {cacheSourceLibrary} from './source-import.js?v=401613a8eaa5242c';
+import {parseRekordboxXml} from './rekordbox-import.js?v=401613a8eaa5242c';
+import {findImportedAudio,audioPeaks,tempoAt,advanceBeats,relinkMetadata} from './import-audio.js?v=401613a8eaa5242c';
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -38,24 +40,29 @@ let sources=[],activeSource=null,libraryPage=0;
 const PAGE_SIZE=75;
 let selectedSourceIndex=null,selectedCandidates=[],refreshSourceId=null,sourceController=null,sourceReader=null;
 const bufferCache=new AudioBufferCache();
+let waveformCache=new WaveformCache();
+const detailedWaves=new Map(),waveformJobs=new Map(),waveformKeys=new Map();
+let previewWaveRange=null,pageActive=true;
 let mappingGroup = 'all';
 let importing = false;
 let editingTrack = null;
 let relinkTrack = null;
 let view = 'library';
 const trackQueue=createTrackQueue();
-const decks = {a:{trackId:null,pendingTrackId:null,loopBeats:4,loadNonce:0,angle:0},b:{trackId:null,pendingTrackId:null,loopBeats:4,loadNonce:0,angle:0}};
+const decks = {a:{trackId:null,pendingTrackId:null,loopBeats:4,loadNonce:0,angle:0,waveSpan:8,waveRange:null},b:{trackId:null,pendingTrackId:null,loopBeats:4,loadNonce:0,angle:0,waveSpan:8,waveRange:null}};
 const engine = new AudioEngine({onEnded:()=>updateDecks(),onStatus:status=>{if(status.message)toast(status.message);updateDecks();}});
 let pendingDeckPlayback=0;
-const preview = new PreviewPlayer({getAudio:id=>library?.getAudio(id),getBuffer:(id,decode)=>bufferCache.get(id,decode),onChange:()=>updatePreview()});
+const preview = new PreviewPlayer({getAudio:id=>library?.getAudio(id),getBuffer:async(id,decode)=>{const buffer=await bufferCache.get(id,decode);prepareWaveform(id,buffer);return buffer;},onChange:()=>updatePreview()});
 const mapping = new MappingManager({actions,onAction:(id,value,phase)=>{if(phase !== 'release') dispatch(id,value).catch(report);},onChange:()=>renderMappings(),onStatus:status=>{renderMIDIStatus(status);}});
 
 function renderDecks() {
   $('#decks').innerHTML = ['a','b'].map(id=>`<article class="deck" data-deck="${id}" aria-label="デッキ ${id.toUpperCase()}">
     <div class="deck-top"><span class="deck-letter">${id.toUpperCase()}</span><div class="deck-meta"><div class="deck-title" id="${id}-title">曲を読み込んでください</div><div class="deck-artist" id="${id}-artist">ライブラリから曲を選択</div></div><div class="deck-bpm"><span id="${id}-bpm">—.—</span><small>BPM</small></div></div>
-    <div class="deck-wave"><canvas id="${id}-wave" aria-label="デッキ ${id.toUpperCase()} 波形。タップして再生位置を変更" role="slider" tabindex="0" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></canvas><span class="wave-empty" id="${id}-wave-empty">ライブラリの ${id.toUpperCase()} をタップ</span></div>
+    <div class="wave-toolbar"><span>波形</span><div class="wave-zoom"><button type="button" data-wave-zoom="${id}:out" aria-label="デッキ ${id.toUpperCase()} 波形を縮小">−</button><output id="${id}-wave-span">8s</output><button type="button" data-wave-zoom="${id}:in" aria-label="デッキ ${id.toUpperCase()} 波形を拡大">＋</button></div></div>
+    <div class="deck-wave"><canvas id="${id}-wave" aria-label="デッキ ${id.toUpperCase()} 詳細波形" role="slider" tabindex="0" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"></canvas><span class="wave-empty" id="${id}-wave-empty">曲を読み込んでください</span></div>
+    <div class="deck-overview"><canvas id="${id}-overview" aria-label="デッキ ${id.toUpperCase()} 全体波形" role="slider" tabindex="0" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"></canvas></div>
     <div class="deck-timeline"><span class="current-time" id="${id}-time">0:00</span><span id="${id}-remaining">− 0:00</span></div>
-    <div class="platter-section"><button class="platter" id="${id}-platter" aria-label="デッキ ${id.toUpperCase()} プラッター。ドラッグでスクラッチ、矢印キーで前後へ移動" title="指で前後に回すとスクラッチ"><span class="record"><span class="record-grooves"></span><span class="record-label"><b>${id.toUpperCase()}</b><small>DECKFLOW</small><i></i></span><span class="record-marker"></span></span><span class="platter-rim"></span></button><div class="platter-info"><span class="eyebrow">TOUCH VINYL</span><span class="platter-status" id="${id}-scratch-state">HOLD + DRAG</span><button class="keylock-button" id="${id}-keylock" aria-pressed="false">KEY LOCK</button><span class="scratch-tip">前後に回してスクラッチ</span></div></div>
+    <div class="platter-section"><button class="platter" id="${id}-platter" aria-label="デッキ ${id.toUpperCase()} プラッター。ドラッグでスクラッチ、矢印キーで前後へ移動"><span class="record"><span class="record-grooves"></span><span class="record-label"><b>${id.toUpperCase()}</b><small>DECKFLOW</small><i></i></span><span class="record-marker"></span></span><span class="platter-rim"></span></button><div class="platter-info"><span class="platter-status sr-only" id="${id}-scratch-state"></span><button class="keylock-button" id="${id}-keylock" aria-pressed="false">KEY LOCK</button></div></div>
     <div class="deck-main-controls"><button class="transport" data-action="${id}.cue" aria-label="デッキ ${id.toUpperCase()} CUEへ戻る">CUE</button><button class="transport play" data-action="${id}.play" id="${id}-play" aria-label="デッキ ${id.toUpperCase()} 再生" aria-pressed="false">▶</button><button class="transport" data-action="${id}.sync" aria-label="デッキ ${id.toUpperCase()} BPMを同期">SYNC</button><button class="transport" data-action="${id}.loop" id="${id}-loop" aria-label="デッキ ${id.toUpperCase()} ループ" aria-pressed="false">LOOP</button></div>
     <div class="hotcues">${Array.from({length:8},(_,i)=>i).map(i=>`<button class="hotcue" data-hotcue="${id}:${i}" id="${id}-hotcue-${i}" aria-label="デッキ ${id.toUpperCase()} HOT CUE ${i+1}" title="未設定なら現在位置を保存。設定後はジャンプ。Shift＋クリックで解除">${i+1}<small>HOT CUE</small></button>`).join('')}</div>
     <div class="deck-bottom"><div class="eq-controls">${['low','mid','high'].map(band=>`<div class="eq-control"><label for="${id}-eq-${band}">${band.toUpperCase()}</label><input id="${id}-eq-${band}" data-control="${id}.eq.${band}" type="range" min="-24" max="12" step="0.1" value="0" aria-label="デッキ ${id.toUpperCase()} EQ ${band}"><output id="${id}-eq-${band}-value">0.0</output></div>`).join('')}</div><div class="tempo-volume"><div class="tempo-control"><label for="${id}-tempo">TEMPO <output id="${id}-tempo-value">+0.0%</output></label><input id="${id}-tempo" data-control="${id}.tempo" type="range" min="-50" max="50" step="0.1" value="0" aria-label="デッキ ${id.toUpperCase()} テンポ"></div><div class="volume-control"><label for="${id}-volume">LEVEL <output id="${id}-volume-value">85%</output></label><input id="${id}-volume" data-control="${id}.volume" type="range" min="0" max="1" step="0.01" value="0.85" aria-label="デッキ ${id.toUpperCase()} 音量"></div><div class="loop-controls"><span>BEATS</span>${[1,2,4,8].map(n=>`<button class="loop-size${n===4?' active':''}" data-loop-size="${id}:${n}" aria-label="デッキ ${id.toUpperCase()} ${n}拍ループ">${n}</button>`).join('')}</div></div></div></article>`).join('');
@@ -100,7 +107,7 @@ async function loadDeck(deck,trackId) {
   decks[deck].pendingTrackId=trackId;
   $(`#${deck}-title`).textContent='読み込み中…';
   try {const buffer=await bufferCache.get(trackId,async()=>{const blob=await library.getAudio(trackId);if(!blob)throw new Error('元の音源を読み込めません。曲を追加し直してください。');return engine.decode(await blob.arrayBuffer());});if(nonce!==decks[deck].loadNonce||!tracks.some(t=>t.id===trackId))return;
-    engine.load(deck,buffer);engine.setCue(deck,track.cue||0);decks[deck].trackId=trackId;decks[deck].angle=0;
+    engine.load(deck,buffer);prepareWaveform(trackId,buffer);engine.setCue(deck,track.cue||0);decks[deck].trackId=trackId;decks[deck].angle=0;
     setControl(`${deck}.tempo`,.5);updateDecks();renderLibrary();toast(`デッキ ${deck.toUpperCase()} に ${track.title} を読み込みました。`);
   } catch(error){if(nonce===decks[deck].loadNonce)updateDecks();report(error);}finally{if(nonce===decks[deck].loadNonce)decks[deck].pendingTrackId=null;}
 }
@@ -144,11 +151,16 @@ function bindPlatter(id){
   for(const name of ['pointerup','pointercancel','lostpointercapture'])el.addEventListener(name,end);
   el.addEventListener('keydown',event=>{if(!['ArrowLeft','ArrowRight'].includes(event.code)||!trackFor(id))return;event.preventDefault();engine.clearLoop(id);engine.seek(id,engine.getState(id).position+(event.code==='ArrowLeft'?-.1:.1));});
   $(`#${id}-keylock`).addEventListener('click',()=>{if(typeof engine.setKeyLock!=='function'){toast('音程を保つテンポ変更は準備中です。');return;}const enabled=!engine.getState(id).keyLockRequested;Promise.resolve(engine.setKeyLock(id,enabled)).then(()=>updateDecks()).catch(report);});
-  const canvas=$(`#${id}-wave`);
-  const seek=event=>{const state=engine.getState(id);if(!state.loaded)return;const r=canvas.getBoundingClientRect();engine.clearLoop(id);engine.seek(id,clamp((event.clientX-r.left)/r.width,0,1)*state.duration);updateDecks();};
-  canvas.addEventListener('pointerdown',event=>{event.preventDefault();canvas.setPointerCapture(event.pointerId);seek(event);});
-  canvas.addEventListener('pointermove',event=>{if(canvas.hasPointerCapture(event.pointerId))seek(event);});
-  canvas.addEventListener('keydown',event=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.code))return;event.preventDefault();const state=engine.getState(id);engine.clearLoop(id);engine.seek(id,event.code==='Home'?0:event.code==='End'?state.duration:state.position+(event.code==='ArrowLeft'?-5:5));updateDecks();});
+  for(const kind of ['wave','overview']){
+    const canvas=$(`#${id}-${kind}`);let range=null;
+    const currentRange=()=>kind==='overview'?{start:0,end:engine.getState(id).duration}:decks[id].waveRange||getWaveformWindow(engine.getState(id).duration,engine.getState(id).position,decks[id].waveSpan);
+    const seek=event=>{const state=engine.getState(id);if(!state.loaded)return;const r=canvas.getBoundingClientRect();engine.clearLoop(id);engine.seek(id,timeAtWaveformX(event.clientX-r.left,r.width,range||currentRange()));updateDecks();};
+    canvas.addEventListener('pointerdown',event=>{if(event.button!==0)return;event.preventDefault();range={...currentRange()};canvas.setPointerCapture(event.pointerId);seek(event);});
+    canvas.addEventListener('pointermove',event=>{if(canvas.hasPointerCapture(event.pointerId))seek(event);});
+    for(const name of ['pointerup','pointercancel','lostpointercapture'])canvas.addEventListener(name,()=>{range=null;});
+    canvas.addEventListener('keydown',event=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.code))return;event.preventDefault();const state=engine.getState(id),step=kind==='overview'?5:decks[id].waveSpan/20;engine.clearLoop(id);engine.seek(id,event.code==='Home'?0:event.code==='End'?state.duration:state.position+(event.code==='ArrowLeft'?-step:step));updateDecks();});
+  }
+  for(const button of $$(`[data-wave-zoom^="${id}:"]`))button.onclick=()=>{decks[id].waveSpan=clamp(decks[id].waveSpan*(button.dataset.waveZoom.endsWith(':in')?.5:2),2,32);updateDecks();};
 }
 
 function updateDecks(){
@@ -160,7 +172,7 @@ function updateDecks(){
     const play=$(`#${id}-play`);play.classList.toggle('is-playing',state.playing);play.textContent=state.playing?'Ⅱ':'▶';play.setAttribute('aria-pressed',String(state.playing));play.setAttribute('aria-label',`デッキ ${id.toUpperCase()} ${state.playing?'一時停止':'再生'}`);
     const loop=$(`#${id}-loop`);loop.classList.toggle('active',!!state.loop);loop.setAttribute('aria-pressed',String(!!state.loop));
     $(`#${id}-wave-empty`).hidden=!!track;
-    $(`#${id}-scratch-state`).textContent=state.scratching?'SCRATCHING':state.playing?'PLAYING':'HOLD + DRAG';
+    $(`#${id}-scratch-state`).textContent=state.scratching?'SCRATCHING':state.playing?'PLAYING':'';
     $(`#${id}-platter`).classList.toggle('scratching',!!state.scratching);
     const keylock=$(`#${id}-keylock`);const locked=!!state.keyLock;keylock.setAttribute('aria-pressed',String(locked));keylock.classList.toggle('active',locked);keylock.textContent=locked?'KEY LOCK':state.keyLockRequested&&!state.keyLockError?'KEY LOCK · 待機':'PITCH LINK';keylock.title=state.keyLockError||(locked?'テンポを変えても音程を保っています':'クリックして音程固定の設定を切り替えます');
     for(let i=0;i<8;i++){const cue=track?.hotcues?.[i];const button=$(`#${id}-hotcue-${i}`);button.classList.toggle('set',cue!=null);const mark=track?.positionMarks?.find(m=>m.num===i);button.title=mark?`${mark.name||`HOT CUE ${i+1}`}${mark.type===4?' · LOOP':''} · Shift＋クリックで解除`:'未設定なら現在位置を保存。設定後はジャンプ。Shift＋クリックで解除';button.innerHTML=`${i+1}<small>${cue!=null?time(cue):'HOT CUE'}</small>`;}
@@ -168,28 +180,51 @@ function updateDecks(){
   }
 }
 
+function prepareWaveform(trackId,buffer){
+  if(!pageActive)return;
+  const track=tracks.find(item=>item.id===trackId);if(!track)return;
+  const key=JSON.stringify([track.id,track.fingerprint||'']);
+  if(waveformKeys.get(trackId)===key&&(detailedWaves.has(trackId)||waveformJobs.has(trackId)))return;
+  const old=waveformKeys.get(trackId);if(old&&old!==key)waveformCache.delete(old);
+  waveformKeys.set(trackId,key);const token={};waveformJobs.set(trackId,token);
+  waveformCache.get(key,buffer).then(waveform=>{
+    if(waveformJobs.get(trackId)!==token||waveformKeys.get(trackId)!==key||!tracks.some(item=>item.id===trackId))return;
+    detailedWaves.delete(trackId);detailedWaves.set(trackId,waveform);
+    while(detailedWaves.size>8){const removable=[...detailedWaves.keys()].find(id=>id!==decks.a.trackId&&id!==decks.b.trackId&&id!==preview.getState().trackId);if(!removable)break;detailedWaves.delete(removable);}
+    for(const id of ['a','b'])if(decks[id].trackId===trackId)drawWave(id);
+    drawLibraryWaves();drawPreviewWave();
+  }).catch(()=>{/* Display data is optional; keep the existing overview and audio. */}).finally(()=>{if(waveformJobs.get(trackId)===token)waveformJobs.delete(trackId);});
+}
+function invalidateWaveform(trackId){const track=tracks.find(item=>item.id===trackId);const key=waveformKeys.get(trackId)||(track?JSON.stringify([track.id,track.fingerprint||'']):null);if(key)waveformCache.delete(key);waveformKeys.delete(trackId);waveformJobs.delete(trackId);detailedWaves.delete(trackId);}
+function waveOptions(track,state){return {waveform:detailedWaves.get(track?.id),peaks:track?.peaks,duration:state.duration||track?.duration||0,position:state.position,markers:(track?.hotcues||[]).flatMap((time,i)=>time==null?[]:[{time,label:String.fromCharCode(65+i)}]),loop:state.loop};}
+function setWavePosition(canvas,state){canvas.setAttribute('aria-valuemax',String(state.duration||0));canvas.setAttribute('aria-valuenow',String(state.position||0));canvas.setAttribute('aria-valuetext',`${time(state.position)} / ${time(state.duration)}`);}
 function drawWave(id,state=engine.getState(id)){
-  const canvas=$(`#${id}-wave`);const rect=canvas.getBoundingClientRect();if(!rect.width)return;
-  const ratio=Math.min(devicePixelRatio||1,2);const w=Math.round(rect.width*ratio),h=Math.round(rect.height*ratio);
-  if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;}
-  const ctx=canvas.getContext('2d');ctx.clearRect(0,0,w,h);const track=trackFor(id);const peaks=track?.peaks||[];const color=id==='a'?'#ef535b':'#c5c5c5';
-  ctx.strokeStyle='#2b2b2b';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(0,h/2);ctx.lineTo(w,h/2);ctx.stroke();
-  if(!track)return;
-  if(track.bpm){const total=state.duration||track.duration;ctx.strokeStyle='#2b2b2b';ctx.lineWidth=ratio;for(const t of barPositions(track,total)){const x=t/total*w;ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke();}}
-  const progress=state.duration?state.position/state.duration:0;const stride=Math.max(1,Math.ceil(peaks.length/(rect.width/3)));
-  for(let i=0;i<peaks.length;i+=stride){const x=i/peaks.length*w;const v=Math.max(...peaks.slice(i,i+stride));ctx.fillStyle=x<w*progress?color:(id==='a'?'#824047':'#626262');const height=Math.max(2,(v||0)*h*.82);ctx.fillRect(x,(h-height)/2,Math.max(1,w/peaks.length*stride-1.5*ratio),height);}
-  if(state.loop){ctx.fillStyle='#ffffff14';ctx.fillRect(state.loop.start/state.duration*w,0,(state.loop.end-state.loop.start)/state.duration*w,h);}
-  for(let i=0;i<8;i++){const cue=track.hotcues?.[i];if(cue==null)continue;const x=cue/state.duration*w;ctx.fillStyle=color;ctx.fillRect(x,0,ratio*1.5,h);ctx.font=`${9*ratio}px monospace`;ctx.fillText(String(i+1),x+4*ratio,12*ratio);}
-  ctx.fillStyle='#f2f2f2';ctx.fillRect(clamp(progress,0,1)*w,0,Math.max(2,ratio),h);
+  const track=trackFor(id),options=waveOptions(track,state),range=getWaveformWindow(options.duration,state.position,decks[id].waveSpan);
+  decks[id].waveRange=range;
+  const canvas=$(`#${id}-wave`),overview=$(`#${id}-overview`);
+  canvas.dataset.resolution=options.waveform?'detailed':'overview';
+  drawWaveform(canvas,{...options,...range,beats:track?waveformBeats(track,range.start,range.end):[]});
+  drawWaveform(overview,{...options,overview:true});
+  for(const target of [canvas,overview])setWavePosition(target,state);
+  $(`#${id}-wave-span`).textContent=`${decks[id].waveSpan}s`;
+  for(const button of $$(`[data-wave-zoom^="${id}:"]`))button.disabled=button.dataset.waveZoom.endsWith(':in')?decks[id].waveSpan<=2:decks[id].waveSpan>=32;
+}
+function drawLibraryWaves(){const byId=new Map(tracks.map(track=>[track.id,track]));for(const canvas of $$('canvas[data-wave-track]')){const track=byId.get(canvas.dataset.waveTrack);if(track)drawWaveform(canvas,{waveform:detailedWaves.get(track.id),peaks:track.peaks,duration:detailedWaves.get(track.id)?.duration||track.duration,position:null,overview:true});}}
+function drawPreviewWave(){
+  if(view!=='library')return;const state=preview.getState(),track=tracks.find(item=>item.id===state.trackId);if(!track)return;
+  const options=waveOptions(track,state),range={start:0,end:options.duration},canvas=$('#preview-wave');previewWaveRange=range;
+  canvas.dataset.resolution=options.waveform?'detailed':'overview';drawWaveform(canvas,{...options,...range,overview:true});setWavePosition(canvas,state);
 }
 
-let lastFrame=0,lastUI=0,lastPreviewUI=0;
+let lastFrame=0,lastUI=0,lastPreviewUI=0,lastWaveUI=0;
 function animate(now){
   const dt=lastFrame?Math.min((now-lastFrame)/1000,.1):0;lastFrame=now;
   if(view==='play'&&!document.hidden){for(const id of ['a','b']){const state=engine.getState(id);if(state.playing&&!state.scratching){decks[id].angle=(decks[id].angle+dt*200*state.rate)%360;$(`#${id}-platter .record`).style.transform=`rotate(${decks[id].angle}deg)`;}
-    if(now-lastUI>60){const track=trackFor(id);$(`#${id}-bpm`).textContent=track?.bpm?(tempoAt(track,state.position).bpm*state.rate).toFixed(2):'—.—';$(`#${id}-time`).textContent=time(state.position);$(`#${id}-remaining`).textContent=`− ${time(state.duration-state.position)}`;$(`#${id}-wave`).setAttribute('aria-valuenow',String(Math.round(state.duration?state.position/state.duration*100:0)));drawWave(id,state);}}
-    if(now-lastUI>60){lastUI=now;const level=engine.getLevels?.();$('#master-meter').style.height=`${Math.min(1,(level?.master||0)*2)*100}%`;$('#audio-status').textContent=engine.context?`${engine.context.sampleRate/1000} kHz / ${engine.context.state==='running'?'AUDIO ON':'待機中'}`:'音声待機中';}}
-  if(view==='library'&&!document.hidden&&now-lastPreviewUI>120){lastPreviewUI=now;updatePreviewProgress();}
+    if(now-lastWaveUI>=32&&(state.playing||state.scratching))drawWave(id,state);
+    if(now-lastUI>100){const track=trackFor(id);$(`#${id}-bpm`).textContent=track?.bpm?(tempoAt(track,state.position).bpm*state.rate).toFixed(2):'—.—';$(`#${id}-time`).textContent=time(state.position);$(`#${id}-remaining`).textContent=`− ${time(state.duration-state.position)}`;}}
+    if(now-lastWaveUI>=32)lastWaveUI=now;
+    if(now-lastUI>100){lastUI=now;const level=engine.getLevels?.();$('#master-meter').style.height=`${Math.min(1,(level?.master||0)*2)*100}%`;$('#audio-status').textContent=engine.context?`${engine.context.sampleRate/1000} kHz / ${engine.context.state==='running'?'AUDIO ON':'待機中'}`:'音声待機中';}}
+  if(view==='library'&&!document.hidden&&now-lastPreviewUI>=32){lastPreviewUI=now;updatePreviewProgress();}
   requestAnimationFrame(animate);
 }
 
@@ -208,10 +243,10 @@ function renderLibrary(){
   const pageCount=Math.max(1,Math.ceil(filtered.length/PAGE_SIZE));libraryPage=Math.min(libraryPage,pageCount-1);
   $('#library-pages').hidden=filtered.length<=PAGE_SIZE;$('#previous-page').disabled=libraryPage===0;$('#next-page').disabled=libraryPage===pageCount-1;$('#page-status').textContent=`${filtered.length?libraryPage*PAGE_SIZE+1:0}–${Math.min(filtered.length,(libraryPage+1)*PAGE_SIZE)} / ${filtered.length.toLocaleString('ja-JP')}曲`;
   $('#source-filter').hidden=!selectedSource;$('#source-filter').innerHTML=selectedSource?`<span>${escapeHTML(selectedSource.label)} · 保存済みライブラリ</span><button class="text-button" data-source-all>すべての曲へ</button>`:'';
-  $('#track-list').innerHTML=filtered.slice(libraryPage*PAGE_SIZE,(libraryPage+1)*PAGE_SIZE).map((t,index)=>`<tr><td class="track-number">${String(libraryPage*PAGE_SIZE+index+1).padStart(2,'0')}</td><td><div class="track-identity"><button class="preview-track-button" data-preview="${escapeHTML(t.id)}" aria-label="${escapeHTML(t.title)} を試聴" aria-pressed="false" ${t.audioMissing?'disabled':''}>▶</button><div class="track-copy"><div class="track-title" title="${escapeHTML(t.filename)}">${escapeHTML(t.title)}</div><div class="track-artist">${escapeHTML(t.artist||'アーティスト未設定')}${t.rekordbox?' · rekordbox':''}</div></div></div></td><td class="wave-cell"><div class="mini-wave" aria-hidden="true">${Array.from({length:55},(_,i)=>`<i style="height:${Math.max(3,(t.peaks?.[Math.floor(i*(t.peaks?.length||0)/55)]||0)*100)}%"></i>`).join('')}</div></td><td class="track-bpm" title="${t.rekordbox?'rekordboxの平均BPM':t.confidence<.35?'解析結果は推定です。曲の情報で修正できます。':'BPM'}">${t.bpm?t.bpm.toFixed(2):'—'}</td><td class="track-duration">${time(t.duration)}</td><td><div class="track-actions">${t.audioMissing?`<button class="link-audio-button" data-link-audio="${escapeHTML(t.id)}">音源を選択</button>`:`<button class="load-button ${decks.a.trackId===t.id?'is-loaded':''}" data-load="a:${escapeHTML(t.id)}" aria-label="${escapeHTML(t.title)} をデッキ A へ">A</button><button class="load-button b ${decks.b.trackId===t.id?'is-loaded':''}" data-load="b:${escapeHTML(t.id)}" aria-label="${escapeHTML(t.title)} をデッキ B へ">B</button>`}</div></td><td><button class="icon-button more-button" data-edit="${escapeHTML(t.id)}" aria-label="${escapeHTML(t.title)} の情報を編集">⋯</button></td></tr>`).join('');
+  $('#track-list').innerHTML=filtered.slice(libraryPage*PAGE_SIZE,(libraryPage+1)*PAGE_SIZE).map((t,index)=>`<tr><td class="track-number">${String(libraryPage*PAGE_SIZE+index+1).padStart(2,'0')}</td><td><div class="track-identity"><button class="preview-track-button" data-preview="${escapeHTML(t.id)}" aria-label="${escapeHTML(t.title)} を試聴" aria-pressed="false" ${t.audioMissing?'disabled':''}>▶</button><div class="track-copy"><div class="track-title" title="${escapeHTML(t.filename)}">${escapeHTML(t.title)}</div><div class="track-artist">${escapeHTML(t.artist||'アーティスト未設定')}${t.rekordbox?' · rekordbox':''}</div></div></div></td><td class="wave-cell"><canvas class="mini-wave" data-wave-track="${escapeHTML(t.id)}" aria-hidden="true"></canvas></td><td class="track-bpm" title="${t.rekordbox?'rekordboxの平均BPM':t.confidence<.35?'解析結果は推定です。曲の情報で修正できます。':'BPM'}">${t.bpm?t.bpm.toFixed(2):'—'}</td><td class="track-duration">${time(t.duration)}</td><td><div class="track-actions">${t.audioMissing?`<button class="link-audio-button" data-link-audio="${escapeHTML(t.id)}">音源を選択</button>`:`<button class="load-button ${decks.a.trackId===t.id?'is-loaded':''}" data-load="a:${escapeHTML(t.id)}" aria-label="${escapeHTML(t.title)} をデッキ A へ">A</button><button class="load-button b ${decks.b.trackId===t.id?'is-loaded':''}" data-load="b:${escapeHTML(t.id)}" aria-label="${escapeHTML(t.title)} をデッキ B へ">B</button>`}</div></td><td><button class="icon-button more-button" data-edit="${escapeHTML(t.id)}" aria-label="${escapeHTML(t.title)} の情報を編集">⋯</button></td></tr>`).join('');
   $('#empty-library').hidden=tracks.length>0;
   if(!filtered.length&&tracks.length)$('#track-list').innerHTML='<tr><td colspan="7" style="text-align:center;color:#a0a0a0;padding:32px">条件に合う曲はありません。</td></tr>';
-  updatePreview();
+  updatePreview();drawLibraryWaves();
 }
 
 
@@ -235,6 +270,7 @@ function updatePreviewProgress(){
   seek.disabled=state.loading||!state.duration||!!state.error;
   seek.setAttribute('aria-valuetext',`${time(state.position)} / ${time(state.duration)}`);
   $('#preview-time').textContent=`${time(state.position)} / ${time(state.duration)}`;
+  drawPreviewWave();
 }
 function updatePreview(){
   const state=preview.getState(),track=tracks.find(t=>t.id===state.trackId);
@@ -279,7 +315,7 @@ let analysisId=0;
 const pendingAnalysis=new Map();
 function analyze(buffer){
   return new Promise((resolve,reject)=>{
-    if(!worker){worker=new Worker(new URL('./analysis-worker.js',import.meta.url),{type:'module'});worker.onmessage=({data})=>{const entry=pendingAnalysis.get(data.id);if(!entry)return;pendingAnalysis.delete(data.id);clearTimeout(entry.timer);data.error?entry.reject(new Error(data.error)):entry.resolve(data.result);};worker.onerror=()=>{for(const entry of pendingAnalysis.values()){clearTimeout(entry.timer);entry.reject(new Error('解析処理を開始できませんでした。ページを再読み込みしてください。'));}pendingAnalysis.clear();worker.terminate();worker=null;};}
+    if(!worker){worker=new Worker(new URL('./analysis-worker.js?v=401613a8eaa5242c',import.meta.url),{type:'module'});worker.onmessage=({data})=>{const entry=pendingAnalysis.get(data.id);if(!entry)return;pendingAnalysis.delete(data.id);clearTimeout(entry.timer);data.error?entry.reject(new Error(data.error)):entry.resolve(data.result);};worker.onerror=()=>{for(const entry of pendingAnalysis.values()){clearTimeout(entry.timer);entry.reject(new Error('解析処理を開始できませんでした。ページを再読み込みしてください。'));}pendingAnalysis.clear();worker.terminate();worker=null;};}
     const step=Math.max(1,Math.floor(buffer.sampleRate/22050));const samples=new Float32Array(Math.ceil(buffer.length/step));
     const channels=Array.from({length:buffer.numberOfChannels},(_,i)=>buffer.getChannelData(i));
     for(let i=0;i<samples.length;i++){let value=0,count=0;for(let j=i*step;j<Math.min((i+1)*step,buffer.length);j++){for(const channel of channels){value+=channel[j];count++;}}samples[i]=value/Math.max(1,count);}
@@ -335,7 +371,7 @@ async function importFiles(files,selectedId=null){
         await trackQueue.run(imported.id,async()=>{
           const current=tracks.find(t=>t.id===imported.id);if(!current)throw new Error('この曲は削除されています。');
           const metadata=relinkMetadata(current,file,duration,peaks);
-          bufferCache.delete(metadata.id);await library.putTrack(metadata,file);tracks=tracks.map(t=>t.id===metadata.id?metadata:t);
+          bufferCache.delete(metadata.id);invalidateWaveform(metadata.id);await library.putTrack(metadata,file);tracks=tracks.map(t=>t.id===metadata.id?metadata:t);
         });linked++;
       }else{
         const result=await analyze(buffer);buffer=null;
@@ -457,6 +493,12 @@ function events(){
   $('#preview-toggle').onclick=()=>togglePreview(preview.getState().trackId).catch(report);
   $('#preview-stop').onclick=()=>preview.stop();
   $('#preview-seek').addEventListener('input',event=>preview.seek(Number(event.target.value)));
+  const previewCanvas=$('#preview-wave');let previewDragRange=null;
+  const seekPreview=event=>{const state=preview.getState();if(!state.duration||state.loading)return;const rect=previewCanvas.getBoundingClientRect();preview.seek(timeAtWaveformX(event.clientX-rect.left,rect.width,previewDragRange||previewWaveRange||{start:0,end:state.duration}));};
+  previewCanvas.addEventListener('pointerdown',event=>{if(event.button!==0)return;event.preventDefault();previewDragRange={...previewWaveRange};previewCanvas.setPointerCapture(event.pointerId);seekPreview(event);});
+  previewCanvas.addEventListener('pointermove',event=>{if(previewCanvas.hasPointerCapture(event.pointerId))seekPreview(event);});
+  for(const name of ['pointerup','pointercancel','lostpointercapture'])previewCanvas.addEventListener(name,()=>{previewDragRange=null;});
+  previewCanvas.addEventListener('keydown',event=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.code))return;event.preventDefault();const state=preview.getState();preview.seek(event.code==='Home'?0:event.code==='End'?state.duration:state.position+(event.code==='ArrowLeft'?-.25:.25));});
   $('#preview-rate').addEventListener('input',event=>preview.setRate(1+Number(event.target.value)/100));
   $('#preview-bpm').addEventListener('input',event=>{
     const track=tracks.find(t=>t.id===preview.getState().trackId),value=Number(event.target.value);
@@ -510,7 +552,7 @@ function events(){
       await trackQueue.run(track.id,async()=>{
         for(const id of ['a','b'])if(decks[id].pendingTrackId===track.id){decks[id].loadNonce++;decks[id].pendingTrackId=null;}
         if(preview.getState().trackId===track.id)preview.clear();
-        bufferCache.delete(track.id);await library.removeTrack(track.id);
+        bufferCache.delete(track.id);invalidateWaveform(track.id);await library.removeTrack(track.id);
         for(const id of ['a','b'])if(decks[id].trackId===track.id){engine.pause(id);decks[id].trackId=null;decks[id].loadNonce++;}
         tracks=tracks.filter(t=>t.id!==track.id);playlists=await library.getPlaylists();
       });
@@ -525,8 +567,9 @@ function events(){
   $('#profile-file').addEventListener('change',async e=>{const file=e.target.files[0];if(!file)return;try{if(file.size>1024*1024)throw new Error('設定ファイルが大きすぎます。');mapping.importProfile(await file.text());toast('割り当て設定を読み込みました。');}catch(error){report(error);}e.target.value='';});
   $('#reset-profile').onclick=async()=>{if(await askConfirm('MIDI・キーの割り当てを初期状態へ戻しますか？'))mapping.reset();};
   document.addEventListener('keydown',e=>{if(e.code==='Escape'&&$('#library-tools')?.open){$('#library-tools').open=false;$('#library-tools summary').focus();return;}if(e.code==='Escape'&&mapping.learning){mapping.cancelLearn();renderMappings();return;}mapping.handleKeyDown(e);});document.addEventListener('keyup',e=>mapping.handleKeyUp(e));
-  window.addEventListener('resize',()=>updateDecks());
-  window.addEventListener('pagehide',()=>{sourceController?.abort();sourceReader?.close();bufferCache.clear();preview.clear();for(const id of ['a','b'])engine.pause(id);});
+  window.addEventListener('resize',()=>{updateDecks();drawLibraryWaves();drawPreviewWave();});
+  window.addEventListener('pageshow',event=>{pageActive=true;if(event.persisted){waveformCache=new WaveformCache();for(const id of ['a','b']){const buffer=engine.decks[id]?.buffer;if(buffer&&decks[id].trackId)prepareWaveform(decks[id].trackId,buffer);}}});
+  window.addEventListener('pagehide',()=>{pageActive=false;for(const id of ['a','b']){decks[id].loadNonce++;decks[id].pendingTrackId=null;}waveformCache.dispose();waveformJobs.clear();sourceController?.abort();sourceReader?.close();bufferCache.clear();preview.clear();for(const id of ['a','b'])engine.pause(id);});
 }
 
 async function start(){

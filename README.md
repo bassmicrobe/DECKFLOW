@@ -29,6 +29,35 @@ Macのlocalhost URLを別端末のiPadから開くことはできません。iPa
 
 楽曲一覧の **▶** でその場で試聴できます。同じボタンで一時停止、試聴バーの **■** で停止して先頭に戻ります。下部の試聴バーから再生位置を変更でき、「テンポ・EQ」を開くと再生BPM（±50%）、LOW／MID／HIGHの3バンドEQ（−24〜＋12 dB）を調整できます。「解析BPMを修正」では保存する曲情報を編集します。試聴のテンポ変更は音程と連動し、別の曲の▶を押すと調整をリセットして切り替わります。DJプレイへ移ると試聴を停止します。DJデッキが再生中の場合は、デッキを停止してから試聴してください。試聴は端末の通常出力を使い、独立したヘッドホンCUEではありません。
 
+## Dockerで起動する
+
+Docker Engine／Docker DesktopとCompose v2以降で起動できます。Node.jsをホストへインストールする必要はありません。
+
+```sh
+docker compose up --build
+```
+
+[http://localhost:8080](http://localhost:8080) を開きます。バックグラウンド起動は `docker compose up --build -d`、停止は `docker compose down` です。ポートが使用中なら `DECKFLOW_PORT=8081 docker compose up --build` のように指定します。
+
+ビルド用Node.jsと配信用nginxを分けた構成で、起動時は静的なWeb資産だけを配信します。コンテナは非root・読み取り専用で動き、音源やライブラリは引き続きブラウザ内のIndexedDBに保存されます。Docker用のデータボリュームは不要です。接続先のホスト名やポートを変えるとブラウザ上は別の保存領域になります。
+
+初期設定はMac自身の `127.0.0.1` のみに公開します。iPadから利用する場合は、VercelなどのHTTPS配信を使うか、このコンテナの前にHTTPSのリバースプロキシを置いてください。LANへバインドする設定は `DECKFLOW_BIND=0.0.0.0` です。LANのHTTP URLだけではAudioWorkletやPWAなどが動作しないため、iPad利用にはHTTPSが必要です。
+
+## Vercelにデプロイする
+
+DECKFLOWはブラウザ側で音源処理・保存を行う静的アプリなので、Vercelへデプロイできます。リポジトリの `vercel.json` が `npm run build` と出力ディレクトリ `dist` を指定します。VercelではDockerコンテナではなく、この静的ビルドを配信します。
+
+1. Vercelの **Add New → Project** から、このGitHubリポジトリをImportします。
+2. **Framework Preset: Other**、**Root Directory: リポジトリ直下**を選びます。
+3. Build Commandが `npm run build`、Output Directoryが `dist` になっていることを確認し、Deployします。npmパッケージのインストールや環境変数の設定は不要です。
+4. 発行されたHTTPS URLをiPadのSafariで開きます。必要に応じてホーム画面へ追加できます。
+
+Vercelで選択したProduction Branchへのpushが本番更新になります。HTML・JavaScript・CSSは更新時に再検証し、CSS・アイコンには内容のバージョン、JavaScript・Worker・Workletには共通のバージョンを付け、新旧の混在を防ぎます。オフライン利用はアプリのService Workerが担当します。再生中に画面を強制更新する処理は入れていません。
+
+音源はVercelへアップロードされません。独自ドメインやPreview URLに変えると保存領域も変わるため、日常利用には同じ本番URLを使ってください。公開先を変更しても、以前のURLに保存した音源が自動移行されるわけではありません。
+
+設定の根拠: [Vercelのビルド設定](https://vercel.com/docs/builds/configure-a-build)、[プロジェクト設定](https://vercel.com/docs/project-configuration)、[Cache-Control](https://vercel.com/docs/caching/cache-control-headers)。
+
 ## 現在の機能
 
 | 機能 | 実装と範囲 |
@@ -41,8 +70,10 @@ Macのlocalhost URLを別端末のiPadから開くことはできません。iPa
 | rekordbox XML | BPM・可変TEMPO・8 HOT CUE・メモリーCUE／LOOP・名前／色・階層プレイリストを取り込み。元音源を追加して再解析せず関連付け |
 | BPM解析 | Web Workerで解析。無音時はBPMを作らず、手動修正・半分／倍への変更が可能 |
 | 2デッキ | 再生、停止、波形からシーク、3-band EQ、レベル、equal-powerクロスフェーダー、マスター |
+| 精細波形 | 全体波形＋2／4／8／16／32秒の拡大・追従表示。通常150点/秒の正負ピークとLOW／MID／HIGHをWorkerで生成。赤・灰・白で表示し、拍・CUE・LOOPを重ねる。試聴バー・曲一覧にもCanvas波形 |
+| 波形キャッシュ | 再デコードせず読み込み済み音源を利用。RAM16 MiB、独立IndexedDB32 MiBの上限付きキャッシュ。30万点を超える長尺は全体を保持したまま解像度を下げる。元のBPM・CUE・ANLZは変更しない |
 | テンポ／KEY LOCK | ±50%。SoundTouchJSで音程を維持。非対応や失敗時はPITCH LINK表示で通常再生へ戻る |
-| スクラッチ | 専用AudioWorkletがPCMを正転／逆転。Pointer Eventsでマウス・タッチ・ペンを共通処理 |
+| スクラッチ | 大型プラッターと専用AudioWorkletがPCMを正転／逆転。Pointer Eventsでマウス・タッチ・ペンを共通処理 |
 | CUE／ループ | CUEへ復帰、8つのHOT CUE、1／2／4／8拍ループ。HOT CUEはShift＋クリックで解除 |
 | SYNC | 相手デッキの実効BPMにテンポを合わせる。現在位置のTEMPO区間を参照。拍位相の自動整列・継続的なテンポ追従は未実装 |
 | MIDI Learn | Note、CC、14-bit Pitch Bend、チャンネル別、絶対値／相対エンコーダー、複数入力・接続変更 |

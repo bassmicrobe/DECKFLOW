@@ -8,7 +8,7 @@
   <link rel="manifest" href="./manifest.webmanifest?v=aea30dc82e49f530">
   <link rel="icon" href="./icon.svg?v=c79714975b95362d" type="image/svg+xml">
   <link rel="stylesheet" href="./styles.css?v=4093e348b6327278">
-  <link rel="stylesheet" href="./library-ui.css?v=8199c7043ab3386a">
+  <link rel="stylesheet" href="./library-ui.css?v=07453d5bf2282c98">
   <title>DECKFLOW</title>
 </head>
 <body>
@@ -62,7 +62,7 @@
         <section class="library-preview" id="library-preview" aria-label="楽曲の試聴" hidden>
           <div class="preview-buttons"><button id="preview-toggle" class="preview-play" aria-label="試聴を再生" aria-pressed="false">▶</button><button id="preview-stop" class="preview-stop" aria-label="試聴を停止して先頭に戻す" title="停止して先頭に戻す">■</button></div>
           <div class="preview-meta"><span id="preview-status" class="preview-status" role="status">試聴</span><strong id="preview-title"></strong><span id="preview-artist"></span></div>
-          <div class="preview-timeline"><input id="preview-seek" type="range" min="0" max="0" step="0.1" value="0" aria-label="試聴の再生位置"><output id="preview-time" for="preview-seek" aria-live="off">0:00 / 0:00</output></div>
+          <div class="preview-timeline"><div class="preview-waveform"><canvas id="preview-wave" role="slider" tabindex="0" aria-label="試聴の全体波形" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"></canvas><input hidden id="preview-seek" type="range" min="0" max="0" step="0.1" value="0" aria-label="試聴の再生位置"></div><output id="preview-time" for="preview-seek" aria-live="off">0:00 / 0:00</output></div>
           <details class="preview-tone"><summary>テンポ・EQ</summary><div class="preview-tone-panel">
           <div class="preview-adjustments">
             <div class="preview-tempo"><div class="preview-bpm-header"><label for="preview-bpm"><span id="preview-bpm-label">再生BPM</span> <input id="preview-bpm" type="number" step="0.01" inputmode="decimal" aria-label="試聴の再生BPM"></label><button id="preview-edit-bpm" class="text-button">解析BPMを修正</button></div><label class="preview-rate-label" for="preview-rate">TEMPO <output id="preview-rate-value" for="preview-rate">+0.0%</output></label><input id="preview-rate" type="range" min="-50" max="50" step="0.1" value="0" aria-label="試聴のテンポ"></div>
@@ -103,6 +103,6 @@
   <dialog id="text-dialog"><form id="text-dialog-form"><span class="eyebrow">DECKFLOW / LIBRARY</span><h2 id="text-dialog-title">プレイリストを作成</h2><label class="dialog-field" for="text-dialog-input">プレイリスト名<input id="text-dialog-input" required maxlength="80" autocomplete="off"></label><div class="dialog-actions"><button class="button subtle" type="button" id="text-dialog-cancel">キャンセル</button><button class="button primary" type="submit">作成</button></div></form></dialog>
   <dialog id="confirm-dialog"><span class="eyebrow">DECKFLOW / CONFIRM</span><h2>操作の確認</h2><p id="confirm-dialog-message"></p><div class="dialog-actions"><button class="button subtle" id="confirm-dialog-cancel">キャンセル</button><button class="button primary" id="confirm-dialog-accept">続ける</button></div></dialog>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="./app.js?v=34176ef44d678beb"></script>
+  <script type="module" src="./app.js?v=401613a8eaa5242c"></script>
 </body>
 </html>

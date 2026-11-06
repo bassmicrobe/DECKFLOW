@@ -1,4 +1,4 @@
-import {analyzeSamples} from './analysis.js';
+import {analyzeSamples} from './analysis.js?v=401613a8eaa5242c';
 
 self.onmessage = event => {
   const {id, samples, sampleRate, options} = event.data ?? {};
