@@ -6,9 +6,14 @@
   "upstream_repository": "https://github.com/cutterbl/SoundTouchJS",
   "source_commit": "d9e39a7ddcf74c7a145bbba45856f30068c82b79",
   "license": "MPL-2.0",
-  "modified": false,
+  "modified": true,
+  "build_modified_files": [
+    "packages/audio-worklet/.dist/SoundTouchNode.js"
+  ],
   "notes": [
-    "Runtime files copied unchanged from the integrity-verified npm 2.1.1 archive.",
+    "Runtime files originate from the integrity-verified npm 2.1.1 archive.",
+    "DECKFLOW scripts/build.mjs adds a ?v=<16 lowercase hexadecimal characters> query to the ./constants.js import in SoundTouchNode.js. No DSP or TypeScript source is changed.",
+    "The sha256 inventory describes upstream bytes. Remove only that import query before verifying SoundTouchNode.js; all other listed files must match byte-for-byte. tests/vendor-integrity.test.mjs verifies this inventory.",
     "Processor sources from its published sourcemap match the pinned upstream commit.",
     "Corresponding TypeScript source, source maps, upstream package notices and complete MPL text are included."
   ],

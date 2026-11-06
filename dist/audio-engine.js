@@ -98,8 +98,8 @@ export class AudioEngine {
     }
     this.keyLockRegistration = (async () => {
       try {
-        const module = await import('./vendor/soundtouchjs/packages/audio-worklet/.dist/SoundTouchNode.js?v=7ede21fefddd1339');
-        const processorUrl = new URL('./vendor/soundtouchjs/packages/audio-worklet/.dist/soundtouch-processor.js?v=7ede21fefddd1339', import.meta.url);
+        const module = await import('./vendor/soundtouchjs/packages/audio-worklet/.dist/SoundTouchNode.js?v=97faa0ed72231add');
+        const processorUrl = new URL('./vendor/soundtouchjs/packages/audio-worklet/.dist/soundtouch-processor.js?v=97faa0ed72231add', import.meta.url);
         await module.SoundTouchNode.register(context, processorUrl);
         if (this.disposed || context !== this.context) return false;
         this.SoundTouchNode = module.SoundTouchNode;
@@ -121,7 +121,7 @@ export class AudioEngine {
     if (!context.audioWorklet || !globalThis.AudioWorkletNode) {
       throw new Error('この環境はスクラッチ音声に対応していません。HTTPSまたはlocalhostで対応ブラウザーを使ってください。');
     }
-    this.scratchRegistration = context.audioWorklet.addModule(new URL('./scratch-worklet.js?v=7ede21fefddd1339', import.meta.url)).catch(error => {
+    this.scratchRegistration = context.audioWorklet.addModule(new URL('./scratch-worklet.js?v=97faa0ed72231add', import.meta.url)).catch(error => {
       this.scratchRegistration = null;
       throw error;
     });
@@ -229,6 +229,17 @@ export class AudioEngine {
     this._prepareScratch(deck).catch(() => {});
   }
 
+  unload(id) {
+    const deck = this._deck(id);
+    this.pause(id);
+    this._releaseScratch(deck);
+    deck.buffer = null;
+    deck.offset = 0;
+    deck.startedAt = this.context?.currentTime || 0;
+    deck.cue = 0;
+    deck.loop = null;
+  }
+
   _crossGain(id) {
     return id === 'a' ? Math.cos(this.crossfader * Math.PI / 2) : Math.sin(this.crossfader * Math.PI / 2);
   }
@@ -273,6 +284,19 @@ export class AudioEngine {
     return deck.keyLock && this.keyLockReady && this.SoundTouchNode && Math.abs(rate - 1) > 0.000001;
   }
 
+  _fallbackKeyLock(deck, source, transportGain) {
+    source.disconnect();
+    if (deck.keyLockNode) {
+      deck.keyLockNode.disconnect();
+      deck.keyLockNode.port.close();
+    }
+    deck.keyLockNode = null;
+    deck.keyLock = false;
+    deck.keyLockError = 'KEY LOCKの音声処理を利用できないため、ピッチ連動で再生を続けています。';
+    source.connect(transportGain);
+    try { this.onStatus({ type: 'keylock', deck: deck.id, available: true, enabled: false, message: deck.keyLockError }); } catch { /* UI callback. */ }
+  }
+
   _start(deck) {
     const context = this._ensureContext();
     if (!deck.buffer) return;
@@ -291,19 +315,19 @@ export class AudioEngine {
     transportGain.connect(deck.nodes.low);
     deck.transportGain = transportGain;
     if (this._usesKeyLock(deck)) {
-      const processor = new this.SoundTouchNode({ context, outputChannelCount: Math.min(2, deck.buffer.numberOfChannels) });
-      processor.playbackRate.value = deck.rate;
-      processor.pitch.value = 1;
-      source.connect(processor).connect(transportGain);
-      deck.keyLockNode = processor;
-      processor.onprocessorerror = () => {
-        if (deck.keyLockNode !== processor || deck.source !== source) return;
-        source.disconnect(); processor.disconnect(); processor.port.close();
-        deck.keyLockNode = null; deck.keyLock = false;
-        deck.keyLockError = 'KEY LOCKの音声処理が停止したため、ピッチ連動で再生を続けています。';
-        source.connect(transportGain);
-        try { this.onStatus({ type: 'keylock', deck: deck.id, available: true, enabled: false, message: deck.keyLockError }); } catch { /* UI callback. */ }
-      };
+      try {
+        const processor = new this.SoundTouchNode({ context, outputChannelCount: Math.min(2, deck.buffer.numberOfChannels) });
+        deck.keyLockNode = processor;
+        processor.playbackRate.value = deck.rate;
+        processor.pitch.value = 1;
+        source.connect(processor).connect(transportGain);
+        processor.onprocessorerror = () => {
+          if (deck.keyLockNode !== processor || deck.source !== source) return;
+          this._fallbackKeyLock(deck, source, transportGain);
+        };
+      } catch {
+        this._fallbackKeyLock(deck, source, transportGain);
+      }
     } else source.connect(transportGain);
     deck.source = source;
     const generation = ++deck.generation;

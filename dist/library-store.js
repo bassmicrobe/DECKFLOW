@@ -1,4 +1,4 @@
-import {normalizeRekordboxMetadata, normalizeFolderPath, parseRekordboxLocation} from './rekordbox-model.js?v=7ede21fefddd1339';
+import {normalizeRekordboxMetadata, normalizeFolderPath, parseRekordboxLocation} from './rekordbox-model.js?v=97faa0ed72231add';
 /**
  * DECKFLOW local library. Metadata and encoded audio live in separate stores,
  * so listing a large library does not read every audio Blob into memory.
@@ -8,6 +8,7 @@ const DATABASE_NAME = 'deckflow-library';
 const DATABASE_VERSION = 1;
 const MAX_TRACKS = 10_000;
 const MAX_PLAYLISTS = 1_000;
+const MAX_SOURCES = 20;
 const MAX_PEAKS = 2_000;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const CONTROL = /[\u0000-\u001f\u007f]/;
@@ -170,6 +171,36 @@ function checkBlob(blob) {
   if (blob !== undefined && !(blob instanceof Blob)) invalid('保存する音源はBlobまたはFileで指定してください。');
 }
 
+function mergeSources(existing, source) {
+  identifier(source.id, 'ライブラリの参照ID');
+  const exists = existing.some(item => item.id === source.id);
+  if (!exists && existing.length >= MAX_SOURCES) {
+    invalid(`保存できるライブラリの参照は${MAX_SOURCES}件までです。不要な参照を一覧から外してください。変更は保存していません。`);
+  }
+  return exists ? existing.map(item => item.id === source.id ? source : item) : [...existing, source];
+}
+
+function trackLimitError() {
+  return new Error(`保存できる曲は${MAX_TRACKS.toLocaleString('en-US')}件までです。不要な曲を削除してから追加してください。変更は保存していません。`);
+}
+
+function editFields(input) {
+  const fields = object(input, '曲の編集内容');
+  return {title: fields.title, artist: fields.artist, bpm: fields.bpm};
+}
+
+function editedTrackDetails(current, fields, playlistId, existingPlaylists) {
+  if (!current) invalid('この曲は削除されています。画面を更新してください。');
+  const track = normalizeTrack({...current, ...fields});
+  const playlists = normalizePlaylists(existingPlaylists);
+  if (playlistId == null || playlistId === '') return {track, playlists};
+  identifier(playlistId, 'プレイリストID');
+  if (!playlists.some(playlist => playlist.id === playlistId)) invalid('追加先のプレイリストが見つかりません。画面を更新してください。変更は保存していません。');
+  return {track, playlists: playlists.map(playlist => playlist.id === playlistId
+    ? {...playlist, trackIds: [...new Set([...playlist.trackIds, track.id])]}
+    : playlist)};
+}
+
 function storageError(error) {
   const quota = error?.name === 'QuotaExceededError';
   return new Error(quota
@@ -188,19 +219,35 @@ class MemoryLibrary {
   }
   async getTracks() { return [...this.tracks.values()].map(clone); }
   async getSources() { return [...this.sources.values()].map(clone); }
-  async putSource(source) { identifier(source.id, 'ライブラリの参照ID'); if(!this.sources.has(source.id)&&this.sources.size>=20)throw new Error('保存できるライブラリの参照は20件までです。'); this.sources.set(source.id, clone(source)); }
+  async putSource(source) { this.sources = new Map(mergeSources([...this.sources.values()], clone(source)).map(item => [item.id, item])); }
   async removeSource(id) { this.sources.delete(id); }
   async putTrack(metadata, blob) {
     const track = normalizeTrack(metadata);
     checkBlob(blob);
+    if (!this.tracks.has(track.id) && this.tracks.size >= MAX_TRACKS) throw trackLimitError();
     this.tracks.set(track.id, track);
     if (blob !== undefined) this.audio.set(track.id, blob);
   }
-  async importTracks(tracks, playlists) {
+  async updateTrackDetails(id, fields, playlistId = null) {
+    identifier(id, '曲ID');
+    const result = editedTrackDetails(this.tracks.get(id), editFields(fields), playlistId, this.playlists);
+    this.tracks = new Map([...this.tracks, [id, result.track]]);
+    this.playlists = result.playlists;
+    return clone(result);
+  }
+  async createPlaylist(playlist) {
+    const candidate = normalizePlaylists([playlist])[0];
+    const playlists = normalizePlaylists([...this.playlists, candidate], new Set(this.tracks.keys()));
+    this.playlists = playlists;
+    return clone(playlists);
+  }
+  async importTracks(tracks, playlists, source = null) {
     const candidate = validateImport(tracks, playlists);
     const merged = mergeImport([...this.tracks.values()], this.playlists, candidate.tracks, candidate.playlists);
+    const sources = source == null ? this.sources : new Map(mergeSources([...this.sources.values()], clone(source)).map(item => [item.id, item]));
     this.tracks = new Map(merged.tracks.map(track => [track.id, track]));
     this.playlists = merged.playlists;
+    this.sources = sources;
     return merged.result;
   }
   async getAudio(id) { identifier(id, '曲ID'); return this.audio.get(id) ?? null; }
@@ -262,15 +309,13 @@ class IndexedLibrary {
     });
   }
   async putSource(source) {
-    identifier(source.id, 'ライブラリの参照ID');
+    const candidate = clone(source);
+    identifier(candidate.id, 'ライブラリの参照ID');
     return this._transaction(['config'], 'readwrite', (transaction, done, fail) => {
       const config = transaction.objectStore('config'), request = config.get('sources');
       request.onsuccess = () => {
         try {
-          const sources = request.result ?? [], index = sources.findIndex(item => item.id === source.id);
-          if (index < 0 && sources.length >= 20) throw new Error('保存できるライブラリの参照は20件までです。不要な参照を一覧から外してください。');
-          if (index < 0) sources.push(source); else sources[index] = source;
-          config.put(sources, 'sources');
+          config.put(mergeSources(request.result ?? [], candidate), 'sources');
         } catch (error) { fail(error); }
       };
     });
@@ -296,30 +341,89 @@ class IndexedLibrary {
   async putTrack(metadata, blob) {
     const track = normalizeTrack(metadata);
     checkBlob(blob);
-    return this._transaction(blob === undefined ? ['tracks'] : ['tracks', 'audio'], 'readwrite', transaction => {
-      transaction.objectStore('tracks').put(track);
-      if (blob !== undefined) transaction.objectStore('audio').put(blob, track.id);
+    return this._transaction(blob === undefined ? ['tracks'] : ['tracks', 'audio'], 'readwrite', (transaction, _, fail) => {
+      const tracks = transaction.objectStore('tracks');
+      const write = () => {
+        try {
+          tracks.put(track);
+          if (blob !== undefined) transaction.objectStore('audio').put(blob, track.id);
+        } catch (error) { fail(error); }
+      };
+      // The count and insert share one write transaction, including across tabs.
+      const count = tracks.count();
+      count.onsuccess = () => {
+        if (count.result < MAX_TRACKS) { write(); return; }
+        const existing = tracks.getKey(track.id);
+        existing.onsuccess = () => existing.result === undefined ? fail(trackLimitError()) : write();
+      };
     });
   }
 
-  async importTracks(tracks, playlists) {
+  async updateTrackDetails(id, fields, playlistId = null) {
+    identifier(id, '曲ID');
+    const candidate = editFields(fields);
+    return this._transaction(['tracks', 'config'], 'readwrite', (transaction, done, fail) => {
+      const tracks = transaction.objectStore('tracks'), config = transaction.objectStore('config');
+      const current = tracks.get(id), lists = config.get('playlists');
+      let trackReady = false, listsReady = false;
+      const commit = () => {
+        if (!trackReady || !listsReady) return;
+        try {
+          const result = editedTrackDetails(current.result, candidate, playlistId, lists.result ?? []);
+          tracks.put(result.track);
+          if (playlistId != null && playlistId !== '') config.put(result.playlists, 'playlists');
+          done(result);
+        } catch (error) { fail(error); }
+      };
+      current.onsuccess = () => { trackReady = true; commit(); };
+      lists.onsuccess = () => { listsReady = true; commit(); };
+    });
+  }
+
+  async createPlaylist(playlist) {
+    const candidate = normalizePlaylists([playlist])[0];
+    return this._transaction(['tracks', 'config'], 'readwrite', (transaction, done, fail) => {
+      const config = transaction.objectStore('config');
+      const keys = transaction.objectStore('tracks').getAllKeys(), lists = config.get('playlists');
+      let keysReady = false, listsReady = false;
+      const commit = () => {
+        if (!keysReady || !listsReady) return;
+        try {
+          const playlists = normalizePlaylists([...(lists.result ?? []), candidate], new Set(keys.result));
+          config.put(playlists, 'playlists');
+          done(playlists);
+        } catch (error) { fail(error); }
+      };
+      keys.onsuccess = () => { keysReady = true; commit(); };
+      lists.onsuccess = () => { listsReady = true; commit(); };
+    });
+  }
+
+  async importTracks(tracks, playlists, source = null) {
     const candidate = validateImport(tracks, playlists);
+    const sourceCandidate = source == null ? null : clone(source);
+    if (sourceCandidate) identifier(sourceCandidate.id, 'ライブラリの参照ID');
     return this._transaction(['tracks', 'config'], 'readwrite', (transaction, done, fail) => {
       const trackStore = transaction.objectStore('tracks'), config = transaction.objectStore('config');
       const trackRequest = trackStore.getAll(), playlistRequest = config.get('playlists');
+      const sourceRequest = sourceCandidate ? config.get('sources') : null;
       let existingTracks, existingPlaylists;
+      let existingSources = sourceCandidate ? null : [];
       const commit = () => {
-        if (!existingTracks || !existingPlaylists) return;
+        if (!existingTracks || !existingPlaylists || !existingSources) return;
         try {
           const merged = mergeImport(existingTracks.map(normalizeTrack), normalizePlaylists(existingPlaylists), candidate.tracks, candidate.playlists);
+          const sources = sourceCandidate ? mergeSources(existingSources, sourceCandidate) : null;
           const existingIds = new Set(existingTracks.map(track => track.id));
           for (const track of merged.tracks) if (!existingIds.has(track.id)) trackStore.put(track);
           config.put(merged.playlists, 'playlists');
+          if (sources) config.put(sources, 'sources');
           done(merged.result);
         } catch (error) { fail(error); }
       };
       trackRequest.onsuccess = () => { existingTracks = trackRequest.result; commit(); };
       playlistRequest.onsuccess = () => { existingPlaylists = playlistRequest.result ?? []; commit(); };
+      if (sourceRequest) sourceRequest.onsuccess = () => { existingSources = sourceRequest.result ?? []; commit(); };
     });
   }
 

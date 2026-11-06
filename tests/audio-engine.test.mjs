@@ -22,7 +22,7 @@ class Worklet extends Node {
     this.name = name; this.context = context; this.messages = [];
     this.parameters = new Map([['pitch', param(1)], ['pitchSemitones', param(0)], ['playbackRate', param(1)]]);
     this.port = {
-      onmessage: null, close() {},
+      onmessage: null, closed: false, close() {this.closed = true;},
       postMessage: message => {
         this.messages.push(message);
         if (message.type === 'load' && Worklet.autoReady) queueMicrotask(() => this.ready(message.id));
@@ -88,6 +88,46 @@ test('KEY LOCK mirrors source rate and failure reports a usable fallback', async
     assert.equal(fallback.getState('a').keyLock, false);
     assert.ok(fallback.getState('a').keyLockError.includes('音程'));
   } finally {fallback.dispose();}
+});
+
+test('KEY LOCK construction and connection failures keep playback at the current position', async () => {
+  for (const failure of ['construct', 'connect']) {
+    const statuses = [], engine = new AudioEngine({onStatus: status => statuses.push(status)});
+    let failedProcessor = null;
+    try {
+      engine.load('a', buffer()); await engine.play('a');
+      engine.context.currentTime = 7;
+      const SoundTouchNode = engine.SoundTouchNode;
+      engine.SoundTouchNode = class extends Node {
+        constructor() {
+          super();
+          if (failure === 'construct') throw new Error('processor unavailable');
+          this.playbackRate = param(1); this.pitch = param(1);
+          this.port = {closed: false, close() {this.closed = true;}};
+          failedProcessor = this;
+        }
+        connect() { throw new Error('processor connection failed'); }
+      };
+      engine.setRate('a', 1.08);
+      assert.equal(engine.getState('a').playing, true);
+      assert.equal(engine.getState('a').position, 7);
+      assert.equal(engine.getState('a').keyLock, false);
+      assert.match(engine.getState('a').keyLockError, /ピッチ連動/);
+      assert.equal(engine.decks.a.source.playbackRate.value, 1.08);
+      assert.deepEqual([...engine.decks.a.source.connections], [engine.decks.a.transportGain]);
+      assert.equal(statuses.at(-1).enabled, false);
+      if (failedProcessor) {
+        assert.equal(failedProcessor.connections.size, 0);
+        assert.equal(failedProcessor.port.closed, true);
+      }
+      engine.SoundTouchNode = SoundTouchNode;
+      engine.setKeyLock('a', true);
+      assert.equal(engine.getState('a').playing, true);
+      assert.equal(engine.getState('a').position, 7);
+      assert.equal(engine.getState('a').keyLock, true);
+      assert.equal(engine.getState('a').keyLockError, null);
+    } finally {engine.dispose();}
+  }
 });
 
 test('grab renders from the original position, release resumes at the finger target', async () => {
@@ -230,3 +270,46 @@ test('rapid release and regrab retain resume intent without a stale play command
     assert.equal(engine.getState('a').position, 4);
   } finally {engine.dispose();}
 });
+
+for (const mode of ['paused', 'playing', 'pending-play', 'scratch', 'pending-scratch']) {
+  test(`unloading a ${mode} deck releases PCM and prevents delayed playback`, async () => {
+    const engine = new AudioEngine();
+    Worklet.autoReady = mode !== 'pending-scratch';
+    try {
+      engine.load('a', buffer()); await flush();
+      engine.setCue('a', 3); engine.setLoop('a', 2, 6); engine.seek('a', 4);
+      let pending;
+      if (mode === 'playing' || mode === 'scratch') await engine.play('a');
+      if (mode === 'scratch') await engine.beginScratch('a');
+      if (mode === 'pending-scratch') {pending = engine.beginScratch('a'); await flush();}
+      if (mode === 'pending-play') pending = engine.play('a');
+      const source = engine.decks.a.source, scratch = scratchNode();
+      engine.unload('a');
+      await pending;
+      scratch.ready(); await flush();
+      const state = engine.getState('a');
+      assert.equal(state.loaded, false);
+      assert.equal(state.playing, false);
+      assert.equal(state.scratching, false);
+      assert.equal(state.position, 0);
+      assert.equal(state.duration, 0);
+      assert.equal(state.cue, 0);
+      assert.equal(state.loop, null);
+      assert.equal(engine.decks.a.buffer, null);
+      assert.equal(engine.decks.a.source, null);
+      assert.equal(engine.decks.a.scratch.buffer, null);
+      assert.equal(engine.decks.a.scratch.node, null);
+      assert.ok(scratch.messages.some(message => message.type === 'dispose'));
+      assert.equal(scratch.port.closed, true);
+      assert.equal(scratch.connections.size, 0);
+      if (source) {assert.equal(source.stopped, true); assert.equal(source.connections.size, 0);}
+      await engine.endScratch('a'); await engine.play('a');
+      assert.equal(engine.getState('a').playing, false);
+      Worklet.autoReady = true;
+      engine.load('a', buffer(12)); await engine.play('a');
+      assert.equal(engine.getState('a').playing, true);
+      assert.equal(engine.getState('a').duration, 12);
+      assert.equal(engine.getState('a').position, 0);
+    } finally {engine.dispose(); Worklet.autoReady = true;}
+  });
+}

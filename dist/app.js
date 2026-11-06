@@ -1,19 +1,20 @@
-import {bindTouchSlider} from './touch-slider.js?v=7ede21fefddd1339';
-import {bindPlatterGesture} from './platter-gesture.js?v=7ede21fefddd1339';
-import {AudioEngine} from './audio-engine.js?v=7ede21fefddd1339';
-import {MappingManager} from './mappings.js?v=7ede21fefddd1339';
-import {openLibrary} from './library-store.js?v=7ede21fefddd1339';
-import {validateUsbLibrary} from './usb-export.js?v=7ede21fefddd1339';
-import {createTrackQueue} from './track-updates.js?v=7ede21fefddd1339';
-import {installFileDrop,isAudioFile} from './file-drop.js?v=7ede21fefddd1339';
-import {PreviewPlayer} from './preview-player.js?v=7ede21fefddd1339';
-import {AudioBufferCache} from './audio-buffer-cache.js?v=7ede21fefddd1339';
-import {WaveformCache} from './waveform-cache.js?v=7ede21fefddd1339';
-import {drawWaveform,getWaveformWindow,timeAtWaveformX,waveformBeats} from './waveform-view.js?v=7ede21fefddd1339';
-import {indexFileList,indexDirectory,createSourceIndex,databaseCandidates,createLibraryReader} from './library-source.js?v=7ede21fefddd1339';
-import {cacheSourceLibrary} from './source-import.js?v=7ede21fefddd1339';
-import {parseRekordboxXml} from './rekordbox-import.js?v=7ede21fefddd1339';
-import {findImportedAudio,audioPeaks,tempoAt,advanceBeats,relinkMetadata} from './import-audio.js?v=7ede21fefddd1339';
+import {createAnalysisInput} from './analysis-input.js?v=97faa0ed72231add';
+import {bindTouchSlider} from './touch-slider.js?v=97faa0ed72231add';
+import {bindPlatterGesture} from './platter-gesture.js?v=97faa0ed72231add';
+import {AudioEngine} from './audio-engine.js?v=97faa0ed72231add';
+import {MappingManager} from './mappings.js?v=97faa0ed72231add';
+import {openLibrary} from './library-store.js?v=97faa0ed72231add';
+import {validateUsbLibrary} from './usb-export.js?v=97faa0ed72231add';
+import {createTrackQueue} from './track-updates.js?v=97faa0ed72231add';
+import {installFileDrop,isAudioFile} from './file-drop.js?v=97faa0ed72231add';
+import {PreviewPlayer} from './preview-player.js?v=97faa0ed72231add';
+import {AudioBufferCache} from './audio-buffer-cache.js?v=97faa0ed72231add';
+import {WaveformCache} from './waveform-cache.js?v=97faa0ed72231add';
+import {drawWaveform,getWaveformWindow,timeAtWaveformX,waveformBeats} from './waveform-view.js?v=97faa0ed72231add';
+import {indexFileList,indexDirectory,createSourceIndex,databaseCandidates,createLibraryReader} from './library-source.js?v=97faa0ed72231add';
+import {cacheSourceLibrary} from './source-import.js?v=97faa0ed72231add';
+import {parseRekordboxXml} from './rekordbox-import.js?v=97faa0ed72231add';
+import {findImportedAudio,audioPeaks,tempoAt,advanceBeats,relinkMetadata} from './import-audio.js?v=97faa0ed72231add';
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -166,7 +167,7 @@ function bindPlatter(id){
     canvas.addEventListener('pointerdown',event=>{if(event.button!==0)return;event.preventDefault();range={...currentRange()};canvas.setPointerCapture(event.pointerId);seek(event);});
     canvas.addEventListener('pointermove',event=>{if(canvas.hasPointerCapture(event.pointerId))seek(event);});
     for(const name of ['pointerup','pointercancel','lostpointercapture'])canvas.addEventListener(name,()=>{range=null;});
-    canvas.addEventListener('keydown',event=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.code))return;event.preventDefault();platterGestures.get(id)?.cancel();const state=engine.getState(id),step=kind==='overview'?5:decks[id].waveSpan/20;engine.clearLoop(id);engine.seek(id,event.code==='Home'?0:event.code==='End'?state.duration:state.position+(event.code==='ArrowLeft'?-step:step));updateDecks();});
+    canvas.addEventListener('keydown',event=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.code)||!engine.getState(id).loaded)return;event.preventDefault();platterGestures.get(id)?.cancel();const state=engine.getState(id),step=kind==='overview'?5:decks[id].waveSpan/20;engine.clearLoop(id);engine.seek(id,event.code==='Home'?0:event.code==='End'?state.duration:state.position+(event.code==='ArrowLeft'?-step:step));updateDecks();});
   }
   for(const button of $$(`[data-wave-zoom^="${id}:"]`))button.onclick=()=>{decks[id].waveSpan=clamp(decks[id].waveSpan*(button.dataset.waveZoom.endsWith(':in')?.5:2),2,32);updateDecks();};
 }
@@ -323,12 +324,10 @@ let analysisId=0;
 const pendingAnalysis=new Map();
 function analyze(buffer){
   return new Promise((resolve,reject)=>{
-    if(!worker){worker=new Worker(new URL('./analysis-worker.js?v=7ede21fefddd1339',import.meta.url),{type:'module'});worker.onmessage=({data})=>{const entry=pendingAnalysis.get(data.id);if(!entry)return;pendingAnalysis.delete(data.id);clearTimeout(entry.timer);data.error?entry.reject(new Error(data.error)):entry.resolve(data.result);};worker.onerror=()=>{for(const entry of pendingAnalysis.values()){clearTimeout(entry.timer);entry.reject(new Error('解析処理を開始できませんでした。ページを再読み込みしてください。'));}pendingAnalysis.clear();worker.terminate();worker=null;};}
-    const step=Math.max(1,Math.floor(buffer.sampleRate/22050));const samples=new Float32Array(Math.ceil(buffer.length/step));
-    const channels=Array.from({length:buffer.numberOfChannels},(_,i)=>buffer.getChannelData(i));
-    for(let i=0;i<samples.length;i++){let value=0,count=0;for(let j=i*step;j<Math.min((i+1)*step,buffer.length);j++){for(const channel of channels){value+=channel[j];count++;}}samples[i]=value/Math.max(1,count);}
+    if(!worker){worker=new Worker(new URL('./analysis-worker.js?v=97faa0ed72231add',import.meta.url),{type:'module'});worker.onmessage=({data})=>{const entry=pendingAnalysis.get(data.id);if(!entry)return;pendingAnalysis.delete(data.id);clearTimeout(entry.timer);data.error?entry.reject(new Error(data.error)):entry.resolve(data.result);};worker.onerror=()=>{for(const entry of pendingAnalysis.values()){clearTimeout(entry.timer);entry.reject(new Error('解析処理を開始できませんでした。ページを再読み込みしてください。'));}pendingAnalysis.clear();worker.terminate();worker=null;};}
+    const {samples,sampleRate}=createAnalysisInput(buffer);
     const id=++analysisId;const timer=setTimeout(()=>{pendingAnalysis.delete(id);reject(new Error('解析に時間がかかっています。短い音源でお試しください。'));},90000);
-    pendingAnalysis.set(id,{resolve,reject,timer});worker.postMessage({id,samples,sampleRate:buffer.sampleRate/step},[samples.buffer]);
+    pendingAnalysis.set(id,{resolve,reject,timer});worker.postMessage({id,samples,sampleRate},[samples.buffer]);
   });
 }
 
@@ -423,9 +422,11 @@ function renderMappings(){
 async function storageInfo(){try{const estimate=await navigator.storage?.estimate?.();$('#storage-status').textContent=library.persistent?`端末内に保存${estimate?.usage?` / ${(estimate.usage/1024/1024).toFixed(1)} MB`:''}`:'一時保存（このセッションのみ）';}catch{}}
 
 function renderSources(){
+  const existingIds=new Set(tracks.map(track=>track.id));
   const trackIds=new Set(tracks.filter(track=>!track.audioMissing).map(track=>track.id));
-  $('#saved-source-list').innerHTML=sources.length?sources.map(source=>`<div class="saved-source"><div><strong>${escapeHTML(source.label)}</strong><small>${source.trackIds.length}曲 · 音源保存 ${source.trackIds.filter(id=>trackIds.has(id)).length}曲</small></div><div class="saved-source-actions"><button class="button subtle compact" data-source-view="${escapeHTML(source.id)}">開く</button><button class="text-button" data-source-refresh="${escapeHTML(source.id)}">再読み込み</button><button class="text-button" data-source-forget="${escapeHTML(source.id)}" aria-label="${escapeHTML(source.label)}の参照だけ一覧から外す">一覧から外す</button></div></div>`).join(''):'<p class="source-note">まだ保存したライブラリはありません。</p>';
-  const nav=$('#source-nav-list');if(nav)nav.innerHTML=sources.map(source=>`<button class="source-nav-button" data-source-view="${escapeHTML(source.id)}"><span>${escapeHTML(source.label)}</span><small>${source.trackIds.length}</small></button>`).join('')||'<p class="source-note">フォルダやUSBから追加できます。</p>';
+  const savedCount=source=>source.trackIds.filter(id=>existingIds.has(id)).length;
+  $('#saved-source-list').innerHTML=sources.length?sources.map(source=>`<div class="saved-source"><div><strong>${escapeHTML(source.label)}</strong><small>${savedCount(source)}曲 · 音源保存 ${source.trackIds.filter(id=>trackIds.has(id)).length}曲</small></div><div class="saved-source-actions"><button class="button subtle compact" data-source-view="${escapeHTML(source.id)}">開く</button><button class="text-button" data-source-refresh="${escapeHTML(source.id)}">再読み込み</button><button class="text-button" data-source-forget="${escapeHTML(source.id)}" aria-label="${escapeHTML(source.label)}の参照だけ一覧から外す">一覧から外す</button></div></div>`).join(''):'<p class="source-note">まだ保存したライブラリはありません。</p>';
+  const nav=$('#source-nav-list');if(nav)nav.innerHTML=sources.map(source=>`<button class="source-nav-button" data-source-view="${escapeHTML(source.id)}"><span>${escapeHTML(source.label)}</span><small>${savedCount(source)}</small></button>`).join('')||'<p class="source-note">フォルダやUSBから追加できます。</p>';
 }
 function openSources(reset=true){
   if(!importing){if(reset)refreshSourceId=null;selectedSourceIndex=null;selectedCandidates=[];$('#source-selection').hidden=true;$('#source-database').innerHTML='';$('#source-progress').textContent='';}
@@ -540,7 +541,12 @@ function events(){
   for(const id of ['demo-button','demo-empty'])$(`#${id}`).onclick=()=>importFiles([demoWav(124,0),demoWav(128,1)]).catch(report);
   $('#show-help').onclick=()=>$('#help-dialog').showModal();$('#usb-info').onclick=()=>$('#usb-dialog').showModal();
   $('#search').addEventListener('input',()=>{libraryPage=0;renderLibrary();});$('#sort').addEventListener('change',()=>{libraryPage=0;renderLibrary();});$('#sort-bpm').onclick=()=>{$('#sort').value=$('#sort').value==='bpm'?'added':'bpm';renderLibrary();};
-  $('#new-playlist').onclick=async()=>{const name=await askPlaylistName();if(!name)return;const p={id:uid(),name:name.slice(0,80),trackIds:[]};const next=[...playlists,p];try{await library.putPlaylists(next);playlists=next;activePlaylist=p.id;renderLibrary();}catch(error){report(error);}};
+  $('#new-playlist').onclick=async()=>{
+    if(!library||importing){toast('ライブラリの読み込み完了後に作成してください。');return;}
+    const name=await askPlaylistName();if(!name)return;
+    const playlist={id:uid(),name:name.slice(0,80),trackIds:[]};
+    try{playlists=await library.createPlaylist(playlist);activePlaylist=playlist.id;activeSource=null;libraryPage=0;renderLibrary();toast('プレイリストを作成しました。');}catch(error){report(error);}
+  };
   $('#track-form').onsubmit=async event=>{
     event.preventDefault();if(importing){toast('読み込み完了後に保存してください。');return;}const id=editingTrack;const form=event.target;
     const fields={title:form.elements.title.value.trim(),artist:form.elements.artist.value.trim(),bpm:form.elements.bpm.value?Number(form.elements.bpm.value):null};
@@ -548,9 +554,11 @@ function events(){
     if(!fields.title)return;
     if(fields.bpm!==null&&(!Number.isFinite(fields.bpm)||fields.bpm<30||fields.bpm>300)){toast('BPMは30〜300で指定してください。');return;}
     try{
-      await trackQueue.run(id,async()=>{const current=tracks.find(t=>t.id===id);if(!current)throw new Error('この曲は削除されています。');const updated={...current,...fields};await library.putTrack(updated);tracks=tracks.map(t=>t.id===id?updated:t);});
-      if(playlistId){const next=playlists.map(p=>p.id===playlistId?{...p,trackIds:[...new Set([...p.trackIds,id])]}:p);await library.putPlaylists(next);playlists=next;}
-      $('#track-dialog').close();
+      await trackQueue.run(id,async()=>{
+        const result=await library.updateTrackDetails(id,fields,playlistId||null);
+        tracks=tracks.map(track=>track.id===id?result.track:track);playlists=result.playlists;
+      });
+      $('#track-dialog').close();toast('曲情報を保存しました。');
     }catch(error){report(error);}finally{renderLibrary();updateDecks();}
   };
   for(const [id,multiplier]of[['half-bpm',.5],['double-bpm',2]])$(`#${id}`).onclick=()=>{const input=$('#track-form').elements.bpm;const value=Number(input.value)*multiplier;if(value>=30&&value<=300)input.value=value.toFixed(2);};
@@ -562,10 +570,10 @@ function events(){
         for(const id of ['a','b'])if(decks[id].pendingTrackId===track.id){decks[id].loadNonce++;decks[id].pendingTrackId=null;}
         if(preview.getState().trackId===track.id)preview.clear();
         bufferCache.delete(track.id);invalidateWaveform(track.id);await library.removeTrack(track.id);
-        for(const id of ['a','b'])if(decks[id].trackId===track.id){platterGestures.get(id)?.cancel();engine.pause(id);decks[id].trackId=null;decks[id].loadNonce++;}
-        tracks=tracks.filter(t=>t.id!==track.id);playlists=await library.getPlaylists();
+        for(const id of ['a','b'])if(decks[id].trackId===track.id){platterGestures.get(id)?.cancel();engine.unload(id);decks[id].trackId=null;decks[id].loadNonce++;}
+        tracks=tracks.filter(t=>t.id!==track.id);[playlists,sources]=await Promise.all([library.getPlaylists(),library.getSources()]);
       });
-      $('#track-dialog').close();renderLibrary();updateDecks();await storageInfo();
+      $('#track-dialog').close();renderSources();renderLibrary();updateDecks();await storageInfo();
     }catch(error){updateDecks();report(error);}
   };
   const saveLibrary=usb=>{if(!tracks.length){toast('先に曲を追加してください。');return;}const snapshot={format:'deckflow.library',version:1,exportedAt:new Date().toISOString(),tracks,playlists};try{if(usb)validateUsbLibrary(snapshot);download('deckflow-library.json',JSON.stringify(snapshot,null,2));toast(usb?'MacのUSB書き出しツールへ渡すJSONを保存しました。':'BPM・CUE・プレイリストをJSONに保存しました。音源は含まれません。');}catch(error){report(error);}};
