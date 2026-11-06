@@ -1,0 +1,14 @@
+{
+  "name": "deckflow",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/serve.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "build": "node scripts/build.mjs",
+    "usb:setup": "node tools/setup-usb-exporter.mjs",
+    "usb:export": "node tools/export-usb.mjs",
+    "ios:sync": "node scripts/sync-ios-assets.mjs"
+  }
+}

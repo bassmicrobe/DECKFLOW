@@ -1,0 +1,592 @@
+/**
+ * DECKFLOW browser audio transport. Only the two loaded decks retain decoded audio.
+ * Browser output is the current system route; this is not a multichannel CUE driver.
+ * Key lock uses locally vendored SoundTouchJS; scratch reads PCM in its own worklet.
+ */
+
+const clamp = (value, min, max) => Math.min(max, Math.max(min, Number.isFinite(Number(value)) ? Number(value) : min));
+const MAX_DECODE_BYTES = 80 * 1024 * 1024;
+const MAX_DURATION_SECONDS = 20 * 60;
+
+function createDeck(id) {
+  return {
+    id, buffer: null, source: null, nodes: null,
+    offset: 0, startedAt: 0, rate: 1, volume: 0.85,
+    eq: { low: 0, mid: 0, high: 0 }, cue: 0, loop: null,
+    playing: false, wantsPlay: false, command: 0, generation: 0,
+    meter: new Float32Array(256), keyLock: true, keyLockNode: null, keyLockError: null, transportGain: null,
+    scratch: { token: 0, pending: false, active: false, resume: false, target: 0, start: 0,
+      node: null, ready: null, resolveReady: null, cancelBegin: null, buffer: null, loadId: 0 },
+  };
+}
+
+export class AudioEngine {
+  constructor({ onEnded = () => {}, onStatus = () => {} } = {}) {
+    this.context = null;
+    this.onEnded = onEnded;
+    this.onStatus = onStatus;
+    this.decks = { a: createDeck('a'), b: createDeck('b') };
+    this.crossfader = 0.5;
+    this.master = 0.8;
+    this.masterNodes = null;
+    this.masterMeter = new Float32Array(256);
+    this.disposed = false;
+    this.keyLockReady = false;
+    this.keyLockError = null;
+    this.keyLockRegistration = null;
+    this.SoundTouchNode = null;
+    this.scratchRegistration = null;
+  }
+
+  _deck(id) {
+    const deck = this.decks[id];
+    if (!deck) throw new Error('デッキが見つかりません。');
+    return deck;
+  }
+
+  _ensureContext() {
+    if (this.disposed) throw new Error('音声エンジンは終了しています。ページを再読み込みしてください。');
+    if (this.context) return this.context;
+    const AudioContextClass = globalThis.AudioContext || globalThis.webkitAudioContext;
+    if (!AudioContextClass) throw new Error('このブラウザーは音声処理に対応していません。');
+    const context = new AudioContextClass({ latencyHint: 'interactive' });
+    this.context = context;
+    const gain = context.createGain();
+    gain.gain.value = this.master;
+    const limiter = context.createDynamicsCompressor();
+    limiter.threshold.value = -1;
+    limiter.knee.value = 3;
+    limiter.ratio.value = 20;
+    limiter.attack.value = 0.003;
+    limiter.release.value = 0.15;
+    const analyser = context.createAnalyser();
+    analyser.fftSize = 256;
+    gain.connect(limiter).connect(analyser).connect(context.destination);
+    this.masterNodes = { gain, limiter, analyser };
+    for (const deck of Object.values(this.decks)) {
+      const low = context.createBiquadFilter();
+      low.type = 'lowshelf'; low.frequency.value = 250; low.gain.value = deck.eq.low;
+      const mid = context.createBiquadFilter();
+      mid.type = 'peaking'; mid.frequency.value = 1000; mid.Q.value = 0.8; mid.gain.value = deck.eq.mid;
+      const high = context.createBiquadFilter();
+      high.type = 'highshelf'; high.frequency.value = 4000; high.gain.value = deck.eq.high;
+      const volume = context.createGain();
+      volume.gain.value = deck.volume;
+      const cross = context.createGain();
+      cross.gain.value = this._crossGain(deck.id);
+      const meter = context.createAnalyser();
+      meter.fftSize = 256;
+      low.connect(mid).connect(high).connect(volume).connect(meter).connect(cross).connect(gain);
+      deck.nodes = { low, mid, high, volume, cross, meter };
+    }
+    return context;
+  }
+
+  async init() {
+    const context = this._ensureContext();
+    if (context.state === 'suspended' || context.state === 'interrupted') await context.resume();
+    await this._registerKeyLock();
+    return context;
+  }
+
+  async _registerKeyLock() {
+    if (this.keyLockRegistration) return this.keyLockRegistration;
+    const context = this._ensureContext();
+    if (!context.audioWorklet || !globalThis.AudioWorkletNode) {
+      this.keyLockError = 'この環境ではKEY LOCKを利用できません。テンポ変更に合わせて音程も変わります。';
+      return false;
+    }
+    this.keyLockRegistration = (async () => {
+      try {
+        const module = await import('./vendor/soundtouchjs/packages/audio-worklet/.dist/SoundTouchNode.js');
+        const processorUrl = new URL('./vendor/soundtouchjs/packages/audio-worklet/.dist/soundtouch-processor.js', import.meta.url);
+        await module.SoundTouchNode.register(context, processorUrl);
+        if (this.disposed || context !== this.context) return false;
+        this.SoundTouchNode = module.SoundTouchNode;
+        this.keyLockReady = true;
+        return true;
+      } catch {
+        this.keyLockReady = false;
+        this.keyLockError = 'KEY LOCKを準備できませんでした。テンポ変更に合わせて音程も変わります。';
+        try { this.onStatus({ type: 'keylock', available: false, message: this.keyLockError }); } catch { /* UI callback. */ }
+        return false;
+      }
+    })();
+    return this.keyLockRegistration;
+  }
+
+  async _registerScratch() {
+    if (this.scratchRegistration) return this.scratchRegistration;
+    const context = this._ensureContext();
+    if (!context.audioWorklet || !globalThis.AudioWorkletNode) {
+      throw new Error('この環境はスクラッチ音声に対応していません。HTTPSまたはlocalhostで対応ブラウザーを使ってください。');
+    }
+    this.scratchRegistration = context.audioWorklet.addModule(new URL('./scratch-worklet.js', import.meta.url)).catch(error => {
+      this.scratchRegistration = null;
+      throw error;
+    });
+    return this.scratchRegistration;
+  }
+
+  _releaseScratch(deck) {
+    const scratch = deck.scratch;
+    scratch.cancelBegin?.();
+    scratch.cancelBegin = null;
+    scratch.token += 1;
+    scratch.pending = false;
+    scratch.active = false;
+    scratch.resume = false;
+    if (scratch.resolveReady) scratch.resolveReady(false);
+    scratch.resolveReady = null;
+    if (scratch.node) {
+      scratch.node.port.postMessage({ type: 'dispose' });
+      scratch.node.disconnect();
+      scratch.node.port.close();
+    }
+    scratch.node = null; scratch.ready = null; scratch.buffer = null;
+  }
+
+  async _prepareScratch(deck) {
+    const scratch = deck.scratch;
+    const buffer = deck.buffer;
+    if (!buffer) throw new Error('スクラッチする曲を読み込んでください。');
+    if (scratch.buffer === buffer && scratch.ready) return scratch.ready;
+    await this._registerScratch();
+    if (this.disposed || deck.buffer !== buffer) return false;
+    // A second caller may have prepared the same buffer while the module loaded.
+    if (scratch.buffer === buffer && scratch.ready) return scratch.ready;
+    const node = new AudioWorkletNode(this.context, 'deckflow-scratch', {
+      numberOfInputs: 0, numberOfOutputs: 1,
+      outputChannelCount: [Math.min(2, buffer.numberOfChannels)],
+    });
+    scratch.node = node;
+    scratch.buffer = buffer;
+    const id = ++scratch.loadId;
+    scratch.ready = new Promise((resolve, reject) => {
+      scratch.resolveReady = resolve;
+      node.port.onmessage = ({ data }) => {
+        if (scratch.node !== node) return;
+        if (data?.type === 'ready' && data.id === id) {
+          scratch.resolveReady = null;
+          resolve(true);
+        }
+        if (data?.type === 'position' && scratch.active && Number.isFinite(data.position)) {
+          deck.offset = clamp(data.position, 0, buffer.duration);
+        }
+      };
+      node.onprocessorerror = () => {
+        reject(new Error('スクラッチ音声処理を開始できませんでした。'));
+        if (scratch.node === node) {
+          this._releaseScratch(deck);
+          try { this.onStatus({ type: 'scratch', available: false, message: 'スクラッチ音声処理が停止しました。曲を読み込み直してください。' }); } catch { /* UI callback. */ }
+        }
+      };
+    });
+    // Transfer one owned copy of each channel. Never detach AudioBuffer storage.
+    const channels = [];
+    for (let index = 0; index < Math.min(2, buffer.numberOfChannels); index++) channels.push(buffer.getChannelData(index).slice());
+    node.port.postMessage({ type: 'load', id, sampleRate: buffer.sampleRate, channels }, channels.map(channel => channel.buffer));
+    return scratch.ready;
+  }
+
+  async decode(arrayBuffer) {
+    if (!(arrayBuffer instanceof ArrayBuffer) || !arrayBuffer.byteLength) {
+      throw new Error('読み込める音声データがありません。');
+    }
+    if (arrayBuffer.byteLength > MAX_DECODE_BYTES) {
+      throw new Error('この試作では80 MB以下の音声ファイルを選んでください。');
+    }
+    const context = this._ensureContext();
+    let buffer;
+    try {
+      // Do not resume here: file import need not wait for an audio-unlock gesture.
+      buffer = await context.decodeAudioData(arrayBuffer);
+    } catch {
+      throw new Error('音声を開けません。MP3、AAC、WAVなど、このブラウザーで再生できるファイルを選んでください。');
+    }
+    if (!buffer?.length || !Number.isFinite(buffer.duration) || buffer.duration <= 0) {
+      throw new Error('音声の長さを読み取れませんでした。');
+    }
+    if (buffer.duration > MAX_DURATION_SECONDS) {
+      throw new Error('この試作では1曲20分以内の音声ファイルを選んでください。');
+    }
+    return buffer;
+  }
+
+  load(id, audioBuffer) {
+    const deck = this._deck(id);
+    if (!audioBuffer || !Number.isFinite(audioBuffer.duration) || audioBuffer.duration <= 0 || !audioBuffer.length) {
+      throw new Error('有効な音声ファイルを読み込んでください。');
+    }
+    this.pause(id);
+    this._releaseScratch(deck);
+    deck.buffer = audioBuffer;
+    deck.offset = 0;
+    deck.startedAt = this.context?.currentTime || 0;
+    deck.cue = 0;
+    deck.loop = null;
+    // Preload the audio-thread PCM while the user chooses the next action.
+    this._prepareScratch(deck).catch(() => {});
+  }
+
+  _crossGain(id) {
+    return id === 'a' ? Math.cos(this.crossfader * Math.PI / 2) : Math.sin(this.crossfader * Math.PI / 2);
+  }
+
+  _position(deck, now = this.context?.currentTime || 0) {
+    if (!deck.buffer) return 0;
+    let position = deck.offset + (deck.playing ? Math.max(0, now - deck.startedAt) * deck.rate : 0);
+    if (deck.loop && position >= deck.loop.end) {
+      const length = deck.loop.end - deck.loop.start;
+      position = deck.loop.start + ((position - deck.loop.start) % length + length) % length;
+    }
+    return clamp(position, 0, deck.buffer.duration);
+  }
+
+  _capture(deck) {
+    deck.offset = this._position(deck);
+    deck.startedAt = this.context?.currentTime || 0;
+  }
+
+  _stopSource(deck) {
+    const source = deck.source;
+    deck.generation += 1;
+    deck.source = null;
+    if (deck.keyLockNode) {
+      deck.keyLockNode.disconnect();
+      deck.keyLockNode.port.close();
+      deck.keyLockNode = null;
+    }
+    if (deck.transportGain) {
+      deck.transportGain.disconnect();
+      deck.transportGain = null;
+    }
+    if (!source) return;
+    source.onended = null;
+    try { source.stop(); } catch { /* Already stopped or naturally ended. */ }
+    try { source.disconnect(); } catch { /* The node may already be disconnected. */ }
+  }
+
+  _start(deck) {
+    const context = this._ensureContext();
+    if (!deck.buffer) return;
+    if (deck.offset >= deck.buffer.duration) deck.offset = 0;
+    const source = context.createBufferSource();
+    source.buffer = deck.buffer;
+    source.playbackRate.value = deck.rate;
+    if (deck.loop) {
+      source.loopStart = deck.loop.start;
+      source.loopEnd = deck.loop.end;
+      source.loop = true;
+    }
+    const transportGain = context.createGain();
+    transportGain.gain.value = 0;
+    transportGain.gain.setTargetAtTime(1, context.currentTime, 0.003);
+    transportGain.connect(deck.nodes.low);
+    deck.transportGain = transportGain;
+    if (deck.keyLock && this.keyLockReady && this.SoundTouchNode) {
+      const processor = new this.SoundTouchNode({ context, outputChannelCount: Math.min(2, deck.buffer.numberOfChannels) });
+      processor.playbackRate.value = deck.rate;
+      processor.pitch.value = 1;
+      source.connect(processor).connect(transportGain);
+      deck.keyLockNode = processor;
+      processor.onprocessorerror = () => {
+        if (deck.keyLockNode !== processor || deck.source !== source) return;
+        source.disconnect(); processor.disconnect(); processor.port.close();
+        deck.keyLockNode = null; deck.keyLock = false;
+        deck.keyLockError = 'KEY LOCKの音声処理が停止したため、ピッチ連動で再生を続けています。';
+        source.connect(transportGain);
+        try { this.onStatus({ type: 'keylock', deck: deck.id, available: true, enabled: false, message: deck.keyLockError }); } catch { /* UI callback. */ }
+      };
+    } else source.connect(transportGain);
+    deck.source = source;
+    const generation = ++deck.generation;
+    deck.startedAt = context.currentTime;
+    deck.playing = true;
+    source.onended = () => {
+      if (deck.source !== source || deck.generation !== generation) return;
+      deck.offset = deck.buffer?.duration || 0;
+      deck.startedAt = context.currentTime;
+      deck.playing = false;
+      deck.wantsPlay = false;
+      deck.source = null;
+      source.disconnect();
+      if (deck.keyLockNode) {
+        deck.keyLockNode.disconnect();
+        deck.keyLockNode.port.close();
+        deck.keyLockNode = null;
+      }
+      if (deck.transportGain) {deck.transportGain.disconnect(); deck.transportGain = null;}
+      try { this.onEnded(deck.id); } catch { /* A view callback must not break the transport. */ }
+    };
+    try {
+      source.start(0, deck.offset);
+    } catch (error) {
+      this._stopSource(deck);
+      deck.playing = false;
+      deck.wantsPlay = false;
+      throw error;
+    }
+  }
+
+  async play(id) {
+    const deck = this._deck(id);
+    if (deck.scratch.active || deck.scratch.pending) this._finishScratch(deck);
+    if (!deck.buffer || deck.playing) return;
+    deck.wantsPlay = true;
+    const command = ++deck.command;
+    try {
+      await this.init();
+      if (this.disposed || deck.command !== command || !deck.wantsPlay || deck.playing || !deck.buffer) return;
+      this._start(deck);
+    } catch (error) {
+      if (deck.command === command) deck.wantsPlay = false;
+      throw error;
+    }
+  }
+
+  pause(id) {
+    const deck = this._deck(id);
+    if (deck.scratch.active || deck.scratch.pending) this._finishScratch(deck);
+    this._capture(deck);
+    deck.command += 1;
+    deck.wantsPlay = false;
+    deck.playing = false;
+    this._stopSource(deck);
+  }
+
+  async toggle(id) {
+    const deck = this._deck(id);
+    if (deck.playing || deck.wantsPlay) this.pause(id);
+    else await this.play(id);
+  }
+
+  seek(id, seconds) {
+    const deck = this._deck(id);
+    if (!deck.buffer) return;
+    const wasPlaying = deck.playing || ((deck.scratch.active || deck.scratch.pending) && deck.scratch.resume);
+    if (deck.scratch.active || deck.scratch.pending) this._finishScratch(deck);
+    this._stopSource(deck);
+    deck.playing = false;
+    deck.offset = clamp(seconds, 0, deck.buffer.duration);
+    if (deck.loop && deck.offset >= deck.loop.end) deck.offset = deck.loop.start;
+    deck.startedAt = this.context?.currentTime || 0;
+    if (wasPlaying && deck.offset < deck.buffer.duration) this._start(deck);
+    else if (wasPlaying) {
+      deck.command += 1;
+      deck.wantsPlay = false;
+    }
+  }
+
+  getState(id) {
+    const deck = this._deck(id);
+    return {
+      loaded: Boolean(deck.buffer),
+      playing: deck.playing,
+      position: this._position(deck),
+      duration: deck.buffer?.duration || 0,
+      rate: deck.rate,
+      volume: deck.volume,
+      cue: deck.cue,
+      loop: deck.loop ? { ...deck.loop } : null,
+      scratching: deck.scratch.active || deck.scratch.pending,
+      keyLock: deck.keyLock && this.keyLockReady,
+      keyLockRequested: deck.keyLock,
+      keyLockAvailable: this.keyLockReady,
+      keyLockError: deck.keyLockError || this.keyLockError,
+    };
+  }
+
+  setRate(id, rate) {
+    const deck = this._deck(id);
+    this._capture(deck);
+    deck.rate = clamp(rate, 0.25, 4);
+    if (deck.source) deck.source.playbackRate.setValueAtTime(deck.rate, this.context.currentTime);
+    if (deck.keyLockNode) deck.keyLockNode.playbackRate.setValueAtTime(deck.rate, this.context.currentTime);
+  }
+
+  setKeyLock(id, enabled) {
+    const deck = this._deck(id);
+    const value = Boolean(enabled);
+    if (deck.keyLock === value) return;
+    const wasPlaying = deck.playing;
+    this._capture(deck);
+    this._stopSource(deck);
+    deck.playing = false;
+    deck.keyLock = value;
+    deck.keyLockError = null;
+    if (wasPlaying) this._start(deck);
+  }
+
+  async beginScratch(id) {
+    const deck = this._deck(id);
+    if (!deck.buffer) throw new Error('スクラッチする曲を読み込んでください。');
+    const scratch = deck.scratch;
+    if (scratch.active || scratch.pending) return;
+    const resume = deck.playing || deck.wantsPlay;
+    this.pause(id);
+    this.clearLoop(id);
+    const token = ++scratch.token;
+    scratch.pending = true;
+    scratch.resume = resume;
+    scratch.target = deck.offset;
+    scratch.start = deck.offset;
+    let timeout;
+    const canceled = new Promise(resolve => { scratch.cancelBegin = () => resolve(false); });
+    try {
+      const context = this._ensureContext();
+      const preparation = (async () => {
+        if (context.state === 'suspended' || context.state === 'interrupted') await context.resume();
+        return this._prepareScratch(deck);
+      })();
+      const ready = await Promise.race([preparation, canceled, new Promise((_, reject) => {
+        timeout = setTimeout(() => reject(new Error('スクラッチ音声の準備が完了しませんでした。曲を読み込み直してください。')), 10000);
+      })]);
+      if (!ready || this.disposed || scratch.token !== token || !scratch.pending) return;
+      scratch.pending = false;
+      scratch.active = true;
+      scratch.node.port.postMessage({ type: 'begin', position: scratch.start });
+      scratch.node.port.postMessage({ type: 'target', position: scratch.target });
+      scratch.node.connect(deck.nodes.low);
+    } catch (error) {
+      if (scratch.token !== token) return;
+      this._finishScratch(deck);
+      if (resume) await this.play(id);
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+      if (scratch.token === token) scratch.cancelBegin = null;
+    }
+  }
+
+  scratchTo(id, seconds) {
+    const deck = this._deck(id);
+    const scratch = deck.scratch;
+    if (!deck.buffer || (!scratch.active && !scratch.pending)) return;
+    scratch.target = clamp(seconds, 0, Math.max(0, deck.buffer.duration - 1 / deck.buffer.sampleRate));
+    if (scratch.active && scratch.node) scratch.node.port.postMessage({ type: 'target', position: scratch.target });
+    else deck.offset = scratch.target;
+  }
+
+  _finishScratch(deck) {
+    const scratch = deck.scratch;
+    const resume = scratch.resume;
+    scratch.cancelBegin?.();
+    scratch.cancelBegin = null;
+    scratch.token += 1;
+    scratch.pending = false; scratch.active = false; scratch.resume = false;
+    if (scratch.node) {
+      scratch.node.port.postMessage({ type: 'end' });
+      scratch.node.disconnect();
+    }
+    deck.offset = clamp(scratch.target, 0, deck.buffer?.duration || 0);
+    deck.startedAt = this.context?.currentTime || 0;
+    return resume;
+  }
+
+  async endScratch(id) {
+    const deck = this._deck(id);
+    if (!deck.scratch.active && !deck.scratch.pending) return;
+    const resume = this._finishScratch(deck);
+    if (resume) await this.play(id);
+  }
+
+  _smooth(param, value) {
+    const now = this.context.currentTime;
+    param.cancelScheduledValues(now);
+    param.setTargetAtTime(value, now, 0.008);
+  }
+
+  setVolume(id, value) {
+    const deck = this._deck(id);
+    deck.volume = clamp(value, 0, 1);
+    if (deck.nodes) this._smooth(deck.nodes.volume.gain, deck.volume);
+  }
+
+  setEQ(id, band, dB) {
+    const deck = this._deck(id);
+    if (!['low', 'mid', 'high'].includes(band)) throw new Error('EQの帯域が正しくありません。');
+    deck.eq[band] = clamp(dB, -24, 12);
+    if (deck.nodes) this._smooth(deck.nodes[band].gain, deck.eq[band]);
+  }
+
+  setCrossfader(value) {
+    this.crossfader = clamp(value, 0, 1);
+    for (const deck of Object.values(this.decks)) {
+      if (deck.nodes) this._smooth(deck.nodes.cross.gain, this._crossGain(deck.id));
+    }
+  }
+
+  setMaster(value) {
+    this.master = clamp(value, 0, 1);
+    if (this.masterNodes) this._smooth(this.masterNodes.gain.gain, this.master);
+  }
+
+  setCue(id, seconds) {
+    const deck = this._deck(id);
+    deck.cue = clamp(seconds, 0, deck.buffer ? Math.max(0, deck.buffer.duration - 1 / deck.buffer.sampleRate) : 0);
+  }
+
+  jumpCue(id) {
+    const deck = this._deck(id);
+    this.pause(id);
+    this.clearLoop(id);
+    this.seek(id, deck.cue);
+  }
+
+  setLoop(id, startSeconds, endSeconds) {
+    const deck = this._deck(id);
+    if (!deck.buffer) return;
+    const start = clamp(startSeconds, 0, deck.buffer.duration);
+    const end = clamp(endSeconds, 0, deck.buffer.duration);
+    if (end - start < 0.02) throw new Error('ループの開始と終了を20 ms以上離してください。');
+    this._capture(deck);
+    deck.loop = { start, end };
+    if (deck.source) {
+      deck.source.loopStart = start;
+      deck.source.loopEnd = end;
+      deck.source.loop = true;
+    }
+    if (deck.offset >= end) this.seek(id, start);
+  }
+
+  clearLoop(id) {
+    const deck = this._deck(id);
+    this._capture(deck);
+    deck.loop = null;
+    if (deck.source) deck.source.loop = false;
+  }
+
+  _rms(analyser, data) {
+    analyser.getFloatTimeDomainData(data);
+    let sum = 0;
+    for (let i = 0; i < data.length; i++) sum += data[i] * data[i];
+    return clamp(Math.sqrt(sum / data.length), 0, 1);
+  }
+
+  getLevels() {
+    if (!this.context || !this.masterNodes) return { a: 0, b: 0, master: 0 };
+    return {
+      a: this._rms(this.decks.a.nodes.meter, this.decks.a.meter),
+      b: this._rms(this.decks.b.nodes.meter, this.decks.b.meter),
+      master: this._rms(this.masterNodes.analyser, this.masterMeter),
+    };
+  }
+
+  dispose() {
+    if (this.disposed) return;
+    for (const deck of Object.values(this.decks)) {
+      this.pause(deck.id);
+      this._releaseScratch(deck);
+      deck.buffer = null;
+      if (deck.nodes) for (const node of Object.values(deck.nodes)) node.disconnect();
+      deck.nodes = null;
+    }
+    if (this.masterNodes) for (const node of Object.values(this.masterNodes)) node.disconnect();
+    this.masterNodes = null;
+    const context = this.context;
+    this.context = null;
+    this.disposed = true;
+    if (context && context.state !== 'closed') context.close().catch(() => {});
+  }
+}

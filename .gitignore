@@ -1,0 +1,12 @@
+.DS_Store
+node_modules/
+*.log
+.openai/credentials*
+work/
+.openai/
+.build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+.local/
+native/ios/DECKFLOW/Resources/Web/

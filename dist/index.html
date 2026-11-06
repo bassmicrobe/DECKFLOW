@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#111416">
+  <meta name="description" content="曲を整える。流れをつくる。DECKFLOWは、選曲とDJプレイのためのワークスペースです。">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css">
+  <title>DECKFLOW — 曲を整える。流れをつくる。</title>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="wordmark" href="./" aria-label="DECKFLOW ホーム"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M4 7h11v5H9v8h6v5H4zM18 7h10v5h-5v3h5v5h-5v5h-5z"/></svg><span>DECKFLOW<span class="wordmark-sub">YOUR NEXT SET STARTS HERE</span></span></a>
+      <nav class="workspace-tabs" aria-label="ワークスペース">
+        <button class="tab active" data-view="play" aria-current="page">プレイ</button>
+        <button class="tab" data-view="library">ライブラリ</button>
+        <button class="tab" data-view="mapping">アサイン<span class="key-indicator" id="mapping-count">5</span></button>
+      </nav>
+      <div class="top-actions"><span class="local-badge"><i></i> LOCAL</span><button class="button primary compact" id="import-top">＋ 音源を追加</button></div>
+    </header>
+
+    <main>
+      <section id="play-view" class="view active" aria-label="DJプレイ">
+        <div class="section-heading"><div><span class="eyebrow">WORKSPACE / 01</span><h1>流れをつくろう。</h1></div><div class="session-info"><span id="audio-status">音声待機中</span><span class="prototype-badge">WEB PROTOTYPE</span></div></div>
+        <div class="decks" id="decks"></div>
+        <section class="mixer" aria-label="ミキサー">
+          <div class="mixer-label"><span class="eyebrow">MIXER</span><span class="mixer-caption">2 DECK / STEREO</span></div>
+          <div class="xfader-wrap"><span class="deck-color-a">A</span><label class="sr-only" for="crossfader">クロスフェーダー</label><input id="crossfader" type="range" min="0" max="1" step="0.001" value="0.5"><span class="deck-color-b">B</span><button class="text-button" id="center-fader" title="中央に戻す">中央</button></div>
+          <div class="master-wrap"><label for="master">MASTER</label><input id="master" type="range" min="0" max="1" step="0.01" value="0.8"><output id="master-value">80%</output><div class="master-meter" aria-label="マスター音量"><i id="master-meter"></i></div></div>
+        </section>
+        <div class="workspace-foot"><span><i class="tiny-dot"></i> 音源はこの端末で処理します</span><button class="text-button" id="show-help">使い方と対応状況 ↗</button></div>
+      </section>
+
+      <section class="library-section" id="library-section" aria-label="音楽ライブラリ">
+        <div class="library-heading"><div><span class="eyebrow">COLLECTION</span><h2>あなたのレコード箱<span id="track-count">0 TRACKS</span></h2></div><div class="library-actions"><button class="button subtle compact" id="demo-button">デモ音源を試す</button><button class="button subtle compact" id="export-library">ライブラリ保存 ↗</button><button class="button subtle compact" id="usb-info">USB書き出し</button></div></div>
+        <div class="library-toolbar"><div class="playlist-tabs" id="playlist-tabs"></div><button class="text-button" id="new-playlist">＋ プレイリスト</button><label class="search"><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8" cy="8" r="5.5"/><path d="m12 12 5 5"/></svg><input id="search" placeholder="曲名・アーティストで検索" type="search" autocomplete="off" aria-label="曲名・アーティストで検索"></label><label class="sort"><span class="sr-only">曲の並び順</span><select id="sort"><option value="added">追加順</option><option value="bpm">BPM順</option><option value="title">曲名順</option></select></label></div>
+        <div class="library-table-wrap"><table class="library-table"><thead><tr><th class="track-index">#</th><th>TRACK / ARTIST</th><th class="wave-cell">WAVEFORM</th><th><button class="text-button" id="sort-bpm">BPM ↕</button></th><th>TIME</th><th class="load-heading">LOAD TO DECK</th><th><span class="sr-only">曲の操作</span></th></tr></thead><tbody id="track-list"></tbody></table></div>
+        <div class="empty-state" id="empty-library"><svg viewBox="0 0 72 72" aria-hidden="true"><path d="M12 25h48v34H12zM19 25v-9h34v9M26 16V8h20v8M20 36h32M20 45h21"/></svg><div><h3>次のセットは、ここから。</h3><p>音源を追加してBPMを解析。<br>曲の「A」「B」をタップするとデッキに読み込めます。</p><button class="button primary" id="import-empty">＋ 最初の曲を追加</button></div></div>
+        <div class="library-footer"><span id="library-status">MP3・WAV・AACなど、ブラウザで再生できる音源に対応</span><span id="storage-status">端末内に保存</span></div>
+      </section>
+
+      <section id="mapping-view" class="view" aria-label="MIDIとキーボードのアサイン">
+        <div class="section-heading"><div><span class="eyebrow">WORKSPACE / 02</span><h1>操作を、自分のものに。</h1></div><span class="prototype-badge">MIDI / KEYBOARD</span></div>
+        <div class="mapping-top"><div class="mapping-intro"><h2>好きな操作を、好きな場所へ。</h2><p>割り当てたい機能の「MIDI」または「キー」を選び、<br class="desktop-only">コントローラーやキーボードを操作してください。</p><div class="mapping-callout" id="midi-status">MIDI接続はまだ開始していません。</div><button class="button primary" id="connect-midi">MIDIを接続</button></div><div class="profile-card"><span class="eyebrow">YOUR PROFILE</span><label for="profile-name">プロファイル名</label><input type="text" id="profile-name" value="My setup" maxlength="60"><div class="profile-actions"><button class="button subtle" id="export-profile">設定を書き出す ↗</button><button class="button subtle" id="import-profile">読み込む</button><button class="text-button" id="reset-profile">初期設定に戻す</button></div><p>割り当ては自動保存されます。書き出したJSONで別の端末にも引き継げます。</p></div></div>
+        <div class="mapping-toolbar"><div class="mapping-filters" id="mapping-filters"><button class="pill active" data-group="all">すべて</button><button class="pill" data-group="a">DECK A</button><button class="pill" data-group="b">DECK B</button><button class="pill" data-group="mixer">MIXER</button></div><label class="encoder-mode">ノブの動作<select id="midi-mode"><option value="absolute">通常（絶対値）</option><option value="relative-twos">相対値：2の補数</option><option value="relative-offset">相対値：64中心</option></select></label></div>
+        <div id="learn-banner" class="learn-banner" hidden><span id="learn-text"></span><button class="button subtle compact" id="cancel-learn">キャンセル</button></div>
+        <div class="mapping-table-wrap"><table class="mapping-table"><thead><tr><th>機能</th><th>割り当て</th><th>LEARN</th></tr></thead><tbody id="mapping-list"></tbody></table></div>
+        <p class="mapping-note">音量・EQなどの連続操作はMIDIで割り当てます。キーは再生・CUEなどのボタン操作に対応。iPad SafariのMIDI接続は未対応で、外部機材の接続には今後iPadアプリ側の実装と検証が必要です。</p>
+      </section>
+    </main>
+    <footer class="app-footer"><span class="footer-brand">DECKFLOW</span><span>PREPARE. CONNECT. PLAY.</span><span>PROTOTYPE 0.1</span></footer>
+  </div>
+  <input type="file" id="audio-files" accept="audio/*,.mp3,.wav,.aif,.aiff,.m4a,.aac,.flac,.ogg" multiple hidden>
+  <input type="file" id="profile-file" accept="application/json,.json" hidden>
+  <dialog id="help-dialog"><div class="dialog-heading"><span class="eyebrow">DECKFLOW / GUIDE</span><button class="icon-button" data-close-dialog aria-label="閉じる">×</button></div><h2>セットの準備から、プレイまで。</h2><ol><li>「音源を追加」で端末内の曲を選びます。</li><li>曲のBPMを解析し、ライブラリに保存します。</li><li>「A」「B」でデッキへ読み込み、再生をタップします。</li><li>アサイン画面でキーや対応ブラウザのMIDI機器を割り当てられます。</li></ol><div class="guide-note"><strong>この試作でできること</strong><p>2デッキ、EQ、テンポ調整、BPM同期、HOT CUE、ループ、プレイリスト、MIDI Learn、キーアサイン。音源はアップロードせず端末内で処理・保存します。</p><strong>現在の対応範囲</strong><p>KEY LOCKは音程を保ったテンポ変更です。利用できない環境ではPITCH LINKと表示し、テンポと音程が連動します。SYNCはBPMを合わせる機能です。解析結果は手動修正できます。ヘッドホンCUEの独立出力とiPad単体のUSB書き出しは未対応です。Mac補助ツールのUSB生成に対応しますが、CDJ実機確認はこれからです。</p><p>1曲80MB・20分まで。最初は少数曲でお試しください。ブラウザのデータを消すと保存した曲も失われるため、元の音源は保管してください。</p></div><button class="button primary" data-close-dialog>はじめる</button></dialog>
+  <dialog id="track-dialog"><div class="dialog-heading"><span class="eyebrow">TRACK DETAILS</span><button class="icon-button" data-close-dialog aria-label="閉じる">×</button></div><form id="track-form"><h2>曲の情報</h2><label>曲名<input name="title" required maxlength="180"></label><label>アーティスト<input name="artist" maxlength="180"></label><div class="bpm-edit"><label>BPM<input name="bpm" type="number" min="30" max="300" step="0.01"></label><button type="button" class="button subtle" id="half-bpm">÷ 2</button><button type="button" class="button subtle" id="double-bpm">× 2</button></div><label>プレイリスト<select name="playlist"><option value="">追加しない</option></select></label><div class="dialog-actions"><button class="text-button danger" id="delete-track" type="button">この曲をライブラリから削除</button><button class="button primary" type="submit">保存</button></div></form></dialog>
+  <dialog id="usb-dialog"><div class="dialog-heading"><span class="eyebrow">USB EXPORT</span><button class="icon-button" data-close-dialog aria-label="閉じる">×</button></div><h2>セットを、CDJ-3000へ。</h2><p>現在はMacの補助ツールと組み合わせて、CDJ-3000向けファイル一式を生成します。iPad単体からのUSB書き出しはまだできません。</p><ol><li>下のボタンでBPM・CUE・プレイリストのJSONを保存。</li><li>MacへJSONを移し、元の音源を同じフォルダに用意。</li><li>リポジトリのUSB書き出し手順で新規フォルダへ生成。</li><li>生成物を別のテスト用USBに配置し、CDJで確認。</li></ol><p>JSONに音源は含まれません。JSONをUSBへコピーするだけではCDJで使えません。生成データの読み戻しは検証済みですが、実際のCDJでの動作は未検証です。</p><div class="dialog-actions"><button class="button subtle" data-close-dialog>閉じる</button><button class="button primary" id="usb-download">USB用JSONを保存 ↗</button></div></dialog>
+  <dialog id="text-dialog"><form id="text-dialog-form"><span class="eyebrow">DECKFLOW / LIBRARY</span><h2 id="text-dialog-title">プレイリストを作成</h2><label class="dialog-field" for="text-dialog-input">プレイリスト名<input id="text-dialog-input" required maxlength="80" autocomplete="off"></label><div class="dialog-actions"><button class="button subtle" type="button" id="text-dialog-cancel">キャンセル</button><button class="button primary" type="submit">作成</button></div></form></dialog>
+  <dialog id="confirm-dialog"><span class="eyebrow">DECKFLOW / CONFIRM</span><h2>操作の確認</h2><p id="confirm-dialog-message"></p><div class="dialog-actions"><button class="button subtle" id="confirm-dialog-cancel">キャンセル</button><button class="button primary" id="confirm-dialog-accept">続ける</button></div></dialog>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
