@@ -100,7 +100,7 @@ test('grab renders from the original position, release resumes at the finger tar
     const node = scratchNode();
     assert.equal(node.messages.find(message => message.type === 'begin').position, 1);
     assert.equal(node.messages.filter(message => message.type === 'target').at(-1).position, 2);
-    node.port.onmessage({data: {type: 'position', position: 1.8}});
+    node.port.onmessage({data: {type: 'position', position: 1.8, session: engine.decks.a.scratch.token}});
     assert.equal(engine.getState('a').position, 1.8);
     await engine.endScratch('a');
     assert.equal(engine.getState('a').position, 2); assert.equal(engine.getState('a').playing, true);
@@ -153,5 +153,80 @@ test('external seek exits scratch without a delayed pointer release overriding i
     engine.seek('a', 8); await engine.endScratch('a');
     assert.equal(engine.getState('a').scratching, false);
     assert.equal(engine.getState('a').position, 8); assert.equal(engine.getState('a').playing, true);
+  } finally {engine.dispose();}
+});
+
+
+test('unity KEY LOCK bypass avoids DSP priming and rate transitions retain position', async () => {
+  const engine = new AudioEngine();
+  try {
+    engine.load('a', buffer()); await engine.play('a');
+    assert.equal(engine.getState('a').keyLockRequested, true);
+    assert.equal(engine.decks.a.keyLockNode, null, 'normal-speed playback uses the direct PCM path');
+    engine.context.currentTime = 2;
+    engine.setRate('a', 1.08);
+    assert.equal(engine.getState('a').position, 2);
+    assert.ok(engine.decks.a.keyLockNode, 'tempo change enables pitch correction');
+    engine.context.currentTime = 3;
+    engine.setRate('a', 1);
+    assert.equal(engine.getState('a').position, 3.08);
+    assert.equal(engine.decks.a.keyLockNode, null);
+    assert.equal(engine.getState('a').keyLock, true, 'bypass must not change the requested setting');
+    await engine.beginScratch('a'); engine.scratchTo('a', 4, 100);
+    engine.setRate('a', 1.1);
+    assert.equal(engine.decks.a.source, null, 'tempo changes must not resume a held platter');
+    await engine.endScratch('a');
+    assert.equal(engine.getState('a').position, 4);
+    assert.ok(engine.decks.a.keyLockNode);
+    await engine.beginScratch('a'); engine.setRate('a', 1); await engine.endScratch('a');
+    assert.equal(engine.decks.a.keyLockNode, null);
+    assert.equal(engine.getState('a').playing, true);
+  } finally {engine.dispose();}
+});
+
+test('touch timestamps survive preparation and stale scratch positions cannot move a new gesture', async () => {
+  const engine = new AudioEngine();
+  try {
+    engine.load('a', buffer());
+    const beginning = engine.beginScratch('a');
+    engine.scratchTo('a', 2, 1234.5); await beginning;
+    const node = scratchNode();
+    const oldSession = engine.decks.a.scratch.token;
+    assert.equal(node.messages.filter(message => message.type === 'target').at(-1).timeStamp, 1234.5);
+    await engine.endScratch('a'); await engine.beginScratch('a');
+    node.port.onmessage({data: {type: 'position', position: 9, session: oldSession}});
+    assert.equal(engine.getState('a').position, 2);
+    node.port.onmessage({data: {type: 'position', position: 2.1, session: engine.decks.a.scratch.token}});
+    assert.equal(engine.getState('a').position, 2.1);
+  } finally {engine.dispose();}
+});
+
+test('release followed by explicit pause cannot resurrect playback', async () => {
+  const engine = new AudioEngine();
+  try {
+    engine.load('a', buffer()); await engine.play('a'); await engine.beginScratch('a');
+    engine.scratchTo('a', 2);
+    const releasing = engine.endScratch('a');
+    engine.pause('a'); await releasing; await flush();
+    assert.equal(engine.getState('a').playing, false);
+    assert.equal(engine.getState('a').scratching, false);
+    assert.equal(engine.decks.a.source, null);
+    assert.equal(engine.getState('a').position, 2);
+  } finally {engine.dispose();}
+});
+
+test('rapid release and regrab retain resume intent without a stale play command', async () => {
+  const engine = new AudioEngine();
+  try {
+    engine.load('a', buffer()); await engine.play('a'); await engine.beginScratch('a');
+    engine.scratchTo('a', 3);
+    const releasing = engine.endScratch('a');
+    const grabbing = engine.beginScratch('a');
+    engine.scratchTo('a', 4); await Promise.all([releasing, grabbing]);
+    assert.equal(engine.getState('a').scratching, true);
+    assert.equal(engine.decks.a.source, null);
+    await engine.endScratch('a');
+    assert.equal(engine.getState('a').playing, true);
+    assert.equal(engine.getState('a').position, 4);
   } finally {engine.dispose();}
 });

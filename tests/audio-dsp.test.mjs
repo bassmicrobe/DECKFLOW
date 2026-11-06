@@ -108,3 +108,79 @@ test('scratch boundaries and disposal remain finite and silent', async () => {
   processor.process([], [output]);
   assert.equal(rms(output[0]), 0);
 });
+
+for (const cadence of [60, 120]) {
+  test(`scratch keeps steady speed with ${cadence} Hz touch samples and audio-quantum delivery jitter`, async () => {
+    const sampleRate = 48000;
+    const {processor, messages} = await processorFrom('../dist/scratch-worklet.js', sampleRate);
+    const pcm = new Float32Array(sampleRate * 3);
+    for (let index = 0; index < pcm.length; index++) pcm[index] = Math.sin(2 * Math.PI * 110 * index / sampleRate) * 0.5;
+    const send = data => processor.port.onmessage({data});
+    send({type: 'load', id: 1, sampleRate, channels: [pcm]});
+    send({type: 'begin', position: 1, session: 7});
+    const output = [new Float32Array(128)];
+    const speeds = [], reverseSpeeds = [];
+    let nextTouch = 0, lastTarget = 1, reverseAfter = null;
+    const triangle = seconds => 1 + (seconds <= 0.25 ? seconds : 0.5 - seconds);
+    for (let frame = 0; frame < sampleRate * 0.5; frame += 128) {
+      // Samples have their original DOM timestamps. Delivery is quantized to
+      // render blocks, alternately early/late relative to the touch interval.
+      while (nextTouch <= frame) {
+        lastTarget = triangle(nextTouch / sampleRate);
+        send({type: 'target', position: lastTarget, timeStamp: nextTouch / sampleRate * 1000});
+        nextTouch += sampleRate / cadence;
+      }
+      const before = processor.position;
+      processor.process([], [output]);
+      assert.ok(output[0].every(Number.isFinite));
+      assert.ok(processor.position >= sampleRate - 0.0001 && processor.position <= sampleRate * 1.25 + 0.0001,
+        'read head must remain within observed finger positions');
+      const speed = (processor.position - before) / 128;
+      const seconds = frame / sampleRate;
+      if (seconds > 0.08 && seconds < 0.23) speeds.push(speed);
+      if (seconds > 0.32 && seconds < 0.47) reverseSpeeds.push(speed);
+      if (seconds >= 0.25 && speed < 0 && reverseAfter === null) reverseAfter = seconds - 0.25;
+    }
+    assert.ok(speeds.every(speed => Math.abs(speed - 1) < 0.0001), 'steady forward input must not flutter between touch samples');
+    assert.ok(reverseSpeeds.every(speed => Math.abs(speed + 1) < 0.0001), 'steady reverse input must not flutter between touch samples');
+    assert.ok(reverseAfter < 0.024, `reversal response: ${reverseAfter} seconds`);
+    for (let block = 0; block < 24; block++) processor.process([], [output]);
+    assert.ok(Math.abs(processor.position / sampleRate - lastTarget) < 0.000001);
+    assert.ok(rms(output[0]) < 0.0001, 'holding the last position must settle within 64 ms without extrapolation');
+    assert.equal(messages.filter(message => message.type === 'position').at(-1).session, 7);
+    send({type: 'end'}); processor.process([], [output]);
+    assert.equal(rms(output[0]), 0);
+  });
+}
+
+test('scratch interpolation bounds event bursts and invalid timestamps without runaway movement', async () => {
+  const {processor} = await processorFrom('../dist/scratch-worklet.js');
+  const send = data => processor.port.onmessage({data});
+  send({type: 'load', sampleRate: 44100, channels: [new Float32Array(44100 * 3)]});
+  send({type: 'begin', position: 1});
+  for (let index = 0; index < 200; index++) send({type: 'target', position: 1 + index / 10000, timeStamp: index});
+  assert.ok(processor.motion.length <= 32);
+  send({type: 'target', position: 2, timeStamp: NaN});
+  const output = [new Float32Array(128)];
+  for (let block = 0; block < 200; block++) {
+    processor.process([], [output]);
+    assert.ok(output[0].every(Number.isFinite));
+    assert.ok(processor.position >= 0 && processor.position < 44100 * 3);
+    assert.ok(Math.abs(processor.velocity) <= 16 * 44100 / 48000);
+  }
+});
+
+
+test('scratch reanchors touch timestamps after the audio clock was interrupted', async () => {
+  const {processor} = await processorFrom('../dist/scratch-worklet.js');
+  const send = data => processor.port.onmessage({data});
+  send({type: 'load', sampleRate: 48000, channels: [new Float32Array(48000 * 3)]});
+  send({type: 'begin', position: 1});
+  send({type: 'target', position: 1, timeStamp: 100});
+  const output = [new Float32Array(128)];
+  for (let block = 0; block < 16; block++) processor.process([], [output]);
+  // DOM time advances a second while no audio quanta are rendered.
+  send({type: 'target', position: 1.1, timeStamp: 1100});
+  for (let block = 0; block < 16; block++) processor.process([], [output]);
+  assert.ok(Math.abs(processor.position / 48000 - 1.1) < 0.000001);
+});

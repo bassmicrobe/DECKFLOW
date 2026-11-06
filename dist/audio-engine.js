@@ -15,7 +15,7 @@ function createDeck(id) {
     eq: { low: 0, mid: 0, high: 0 }, cue: 0, loop: null,
     playing: false, wantsPlay: false, command: 0, generation: 0,
     meter: new Float32Array(256), keyLock: true, keyLockNode: null, keyLockError: null, transportGain: null,
-    scratch: { token: 0, pending: false, active: false, resume: false, target: 0, start: 0,
+    scratch: { token: 0, pending: false, active: false, resume: false, target: 0, start: 0, timeStamp: null,
       node: null, ready: null, resolveReady: null, cancelBegin: null, buffer: null, loadId: 0 },
   };
 }
@@ -98,8 +98,8 @@ export class AudioEngine {
     }
     this.keyLockRegistration = (async () => {
       try {
-        const module = await import('./vendor/soundtouchjs/packages/audio-worklet/.dist/SoundTouchNode.js?v=401613a8eaa5242c');
-        const processorUrl = new URL('./vendor/soundtouchjs/packages/audio-worklet/.dist/soundtouch-processor.js?v=401613a8eaa5242c', import.meta.url);
+        const module = await import('./vendor/soundtouchjs/packages/audio-worklet/.dist/SoundTouchNode.js?v=9e830656f38a4042');
+        const processorUrl = new URL('./vendor/soundtouchjs/packages/audio-worklet/.dist/soundtouch-processor.js?v=9e830656f38a4042', import.meta.url);
         await module.SoundTouchNode.register(context, processorUrl);
         if (this.disposed || context !== this.context) return false;
         this.SoundTouchNode = module.SoundTouchNode;
@@ -121,7 +121,7 @@ export class AudioEngine {
     if (!context.audioWorklet || !globalThis.AudioWorkletNode) {
       throw new Error('この環境はスクラッチ音声に対応していません。HTTPSまたはlocalhostで対応ブラウザーを使ってください。');
     }
-    this.scratchRegistration = context.audioWorklet.addModule(new URL('./scratch-worklet.js?v=401613a8eaa5242c', import.meta.url)).catch(error => {
+    this.scratchRegistration = context.audioWorklet.addModule(new URL('./scratch-worklet.js?v=9e830656f38a4042', import.meta.url)).catch(error => {
       this.scratchRegistration = null;
       throw error;
     });
@@ -170,7 +170,7 @@ export class AudioEngine {
           scratch.resolveReady = null;
           resolve(true);
         }
-        if (data?.type === 'position' && scratch.active && Number.isFinite(data.position)) {
+        if (data?.type === 'position' && scratch.active && data.session === scratch.token && Number.isFinite(data.position)) {
           deck.offset = clamp(data.position, 0, buffer.duration);
         }
       };
@@ -267,6 +267,12 @@ export class AudioEngine {
     try { source.disconnect(); } catch { /* The node may already be disconnected. */ }
   }
 
+  _usesKeyLock(deck, rate = deck.rate) {
+    // At unity rate pitch correction has no effect. Bypass its window/buffer
+    // latency so releasing a scratch resumes PCM immediately at normal tempo.
+    return deck.keyLock && this.keyLockReady && this.SoundTouchNode && Math.abs(rate - 1) > 0.000001;
+  }
+
   _start(deck) {
     const context = this._ensureContext();
     if (!deck.buffer) return;
@@ -284,7 +290,7 @@ export class AudioEngine {
     transportGain.gain.setTargetAtTime(1, context.currentTime, 0.003);
     transportGain.connect(deck.nodes.low);
     deck.transportGain = transportGain;
-    if (deck.keyLock && this.keyLockReady && this.SoundTouchNode) {
+    if (this._usesKeyLock(deck)) {
       const processor = new this.SoundTouchNode({ context, outputChannelCount: Math.min(2, deck.buffer.numberOfChannels) });
       processor.playbackRate.value = deck.rate;
       processor.pitch.value = 1;
@@ -401,6 +407,12 @@ export class AudioEngine {
     const deck = this._deck(id);
     this._capture(deck);
     deck.rate = clamp(rate, 0.25, 4);
+    if (deck.playing && Boolean(deck.keyLockNode) !== Boolean(this._usesKeyLock(deck))) {
+      this._stopSource(deck);
+      deck.playing = false;
+      this._start(deck);
+      return;
+    }
     if (deck.source) deck.source.playbackRate.setValueAtTime(deck.rate, this.context.currentTime);
     if (deck.keyLockNode) deck.keyLockNode.playbackRate.setValueAtTime(deck.rate, this.context.currentTime);
   }
@@ -431,6 +443,7 @@ export class AudioEngine {
     scratch.resume = resume;
     scratch.target = deck.offset;
     scratch.start = deck.offset;
+    scratch.timeStamp = null;
     let timeout;
     const canceled = new Promise(resolve => { scratch.cancelBegin = () => resolve(false); });
     try {
@@ -445,8 +458,8 @@ export class AudioEngine {
       if (!ready || this.disposed || scratch.token !== token || !scratch.pending) return;
       scratch.pending = false;
       scratch.active = true;
-      scratch.node.port.postMessage({ type: 'begin', position: scratch.start });
-      scratch.node.port.postMessage({ type: 'target', position: scratch.target });
+      scratch.node.port.postMessage({ type: 'begin', position: scratch.start, session: token });
+      scratch.node.port.postMessage({ type: 'target', position: scratch.target, timeStamp: scratch.timeStamp });
       scratch.node.connect(deck.nodes.low);
     } catch (error) {
       if (scratch.token !== token) return;
@@ -459,12 +472,13 @@ export class AudioEngine {
     }
   }
 
-  scratchTo(id, seconds) {
+  scratchTo(id, seconds, timeStamp) {
     const deck = this._deck(id);
     const scratch = deck.scratch;
     if (!deck.buffer || (!scratch.active && !scratch.pending)) return;
     scratch.target = clamp(seconds, 0, Math.max(0, deck.buffer.duration - 1 / deck.buffer.sampleRate));
-    if (scratch.active && scratch.node) scratch.node.port.postMessage({ type: 'target', position: scratch.target });
+    scratch.timeStamp = Number.isFinite(timeStamp) ? timeStamp : null;
+    if (scratch.active && scratch.node) scratch.node.port.postMessage({ type: 'target', position: scratch.target, timeStamp: scratch.timeStamp });
     else deck.offset = scratch.target;
   }
 

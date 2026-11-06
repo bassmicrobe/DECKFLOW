@@ -87,7 +87,7 @@ export async function sourceDigest(bytes) {
 
 /** A worker per import keeps parsing off the playback/UI thread and makes cancellation immediate. */
 export function createLibraryReader() {
-  const worker = new Worker(new URL('./library-source-worker.js?v=401613a8eaa5242c', import.meta.url), {type:'module'});
+  const worker = new Worker(new URL('./library-source-worker.js?v=9e830656f38a4042', import.meta.url), {type:'module'});
   let sequence = 0; const pending = new Map(); let closed = false;
   const close = (error = new Error('読み込みを中止しました。')) => {
     if (closed) return; closed = true; worker.terminate();

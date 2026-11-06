@@ -1,17 +1,18 @@
-import {AudioEngine} from './audio-engine.js?v=401613a8eaa5242c';
-import {MappingManager} from './mappings.js?v=401613a8eaa5242c';
-import {openLibrary} from './library-store.js?v=401613a8eaa5242c';
-import {validateUsbLibrary} from './usb-export.js?v=401613a8eaa5242c';
-import {createTrackQueue} from './track-updates.js?v=401613a8eaa5242c';
-import {installFileDrop,isAudioFile} from './file-drop.js?v=401613a8eaa5242c';
-import {PreviewPlayer} from './preview-player.js?v=401613a8eaa5242c';
-import {AudioBufferCache} from './audio-buffer-cache.js?v=401613a8eaa5242c';
-import {WaveformCache} from './waveform-cache.js?v=401613a8eaa5242c';
-import {drawWaveform,getWaveformWindow,timeAtWaveformX,waveformBeats} from './waveform-view.js?v=401613a8eaa5242c';
-import {indexFileList,indexDirectory,createSourceIndex,databaseCandidates,createLibraryReader} from './library-source.js?v=401613a8eaa5242c';
-import {cacheSourceLibrary} from './source-import.js?v=401613a8eaa5242c';
-import {parseRekordboxXml} from './rekordbox-import.js?v=401613a8eaa5242c';
-import {findImportedAudio,audioPeaks,tempoAt,advanceBeats,relinkMetadata} from './import-audio.js?v=401613a8eaa5242c';
+import {bindPlatterGesture} from './platter-gesture.js?v=9e830656f38a4042';
+import {AudioEngine} from './audio-engine.js?v=9e830656f38a4042';
+import {MappingManager} from './mappings.js?v=9e830656f38a4042';
+import {openLibrary} from './library-store.js?v=9e830656f38a4042';
+import {validateUsbLibrary} from './usb-export.js?v=9e830656f38a4042';
+import {createTrackQueue} from './track-updates.js?v=9e830656f38a4042';
+import {installFileDrop,isAudioFile} from './file-drop.js?v=9e830656f38a4042';
+import {PreviewPlayer} from './preview-player.js?v=9e830656f38a4042';
+import {AudioBufferCache} from './audio-buffer-cache.js?v=9e830656f38a4042';
+import {WaveformCache} from './waveform-cache.js?v=9e830656f38a4042';
+import {drawWaveform,getWaveformWindow,timeAtWaveformX,waveformBeats} from './waveform-view.js?v=9e830656f38a4042';
+import {indexFileList,indexDirectory,createSourceIndex,databaseCandidates,createLibraryReader} from './library-source.js?v=9e830656f38a4042';
+import {cacheSourceLibrary} from './source-import.js?v=9e830656f38a4042';
+import {parseRekordboxXml} from './rekordbox-import.js?v=9e830656f38a4042';
+import {findImportedAudio,audioPeaks,tempoAt,advanceBeats,relinkMetadata} from './import-audio.js?v=9e830656f38a4042';
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -51,6 +52,7 @@ let view = 'library';
 const trackQueue=createTrackQueue();
 const decks = {a:{trackId:null,pendingTrackId:null,loopBeats:4,loadNonce:0,angle:0,waveSpan:8,waveRange:null},b:{trackId:null,pendingTrackId:null,loopBeats:4,loadNonce:0,angle:0,waveSpan:8,waveRange:null}};
 const engine = new AudioEngine({onEnded:()=>updateDecks(),onStatus:status=>{if(status.message)toast(status.message);updateDecks();}});
+const platterGestures=new Map();
 let pendingDeckPlayback=0;
 const preview = new PreviewPlayer({getAudio:id=>library?.getAudio(id),getBuffer:async(id,decode)=>{const buffer=await bufferCache.get(id,decode);prepareWaveform(id,buffer);return buffer;},onChange:()=>updatePreview()});
 const mapping = new MappingManager({actions,onAction:(id,value,phase)=>{if(phase !== 'release') dispatch(id,value).catch(report);},onChange:()=>renderMappings(),onStatus:status=>{renderMIDIStatus(status);}});
@@ -77,6 +79,7 @@ async function dispatch(id,value=1) {
   const [deck,name]=id.split('.');
   const track=trackFor(deck);
   if(!track){toast('先にライブラリの曲をデッキへ読み込んでください。');return;}
+  if(name==='play'||name==='cue'||name==='loop')platterGestures.get(deck)?.cancel();
   if(name==='play')await startDeckPlayback(()=>engine.toggle(deck));
   if(name==='cue')engine.jumpCue(deck);
   if(name.startsWith('hotcue'))await hotCue(deck,Number(name.slice(6))-1);
@@ -107,7 +110,7 @@ async function loadDeck(deck,trackId) {
   decks[deck].pendingTrackId=trackId;
   $(`#${deck}-title`).textContent='読み込み中…';
   try {const buffer=await bufferCache.get(trackId,async()=>{const blob=await library.getAudio(trackId);if(!blob)throw new Error('元の音源を読み込めません。曲を追加し直してください。');return engine.decode(await blob.arrayBuffer());});if(nonce!==decks[deck].loadNonce||!tracks.some(t=>t.id===trackId))return;
-    engine.load(deck,buffer);prepareWaveform(trackId,buffer);engine.setCue(deck,track.cue||0);decks[deck].trackId=trackId;decks[deck].angle=0;
+    platterGestures.get(deck)?.cancel();engine.load(deck,buffer);prepareWaveform(trackId,buffer);engine.setCue(deck,track.cue||0);decks[deck].trackId=trackId;decks[deck].angle=0;
     setControl(`${deck}.tempo`,.5);updateDecks();renderLibrary();toast(`デッキ ${deck.toUpperCase()} に ${track.title} を読み込みました。`);
   } catch(error){if(nonce===decks[deck].loadNonce)updateDecks();report(error);}finally{if(nonce===decks[deck].loadNonce)decks[deck].pendingTrackId=null;}
 }
@@ -119,7 +122,7 @@ async function hotCue(deck,index,clear=false){
     const current=tracks.find(t=>t.id===track.id);if(!current)throw new Error('この曲はライブラリから削除されています。');
     const updated={...current,hotcues:[...(current.hotcues||Array(8).fill(null))]};
     if(clear||current.hotcues?.[index]==null){updated.hotcues[index]=clear?null:pos;if(current.positionMarks){updated.positionMarks=current.positionMarks.filter(mark=>mark.num!==index);if(!clear)updated.positionMarks.push({name:`HOT CUE ${index+1}`,type:0,start:pos,end:null,num:index,color:null});}await library.putTrack(updated);tracks=tracks.map(t=>t.id===updated.id?updated:t);toast(clear?`HOT CUE ${index+1} を解除しました。`:`HOT CUE ${index+1} を ${time(pos)} に保存しました。`);}
-    else if(decks[deck].trackId===track.id){engine.clearLoop(deck);engine.seek(deck,current.hotcues[index]);const mark=current.positionMarks?.find(mark=>mark.num===index);if(mark?.type===4)engine.setLoop(deck,mark.start,mark.end);await startDeckPlayback(()=>engine.play(deck));}
+    else if(decks[deck].trackId===track.id){platterGestures.get(deck)?.cancel();engine.clearLoop(deck);engine.seek(deck,current.hotcues[index]);const mark=current.positionMarks?.find(mark=>mark.num===index);if(mark?.type===4)engine.setLoop(deck,mark.start,mark.end);await startDeckPlayback(()=>engine.play(deck));}
   });
   updateDecks();
 }
@@ -142,23 +145,26 @@ function syncDeck(deck){
 }
 
 function bindPlatter(id){
-  const el=$(`#${id}-platter`);let gesture=null;
-  const angle=event=>{const r=el.getBoundingClientRect();return Math.atan2(event.clientY-r.top-r.height/2,event.clientX-r.left-r.width/2);};
-  const end=()=>{if(!gesture)return;gesture=null;startDeckPlayback(()=>engine.endScratch?.(id)).then(()=>updateDecks()).catch(report);updateDecks();};
-  el.addEventListener('pointerdown',event=>{if(event.button!==0||gesture||!trackFor(id))return;event.preventDefault();el.setPointerCapture(event.pointerId);const state=engine.getState(id);const active={pointerId:event.pointerId,angle:angle(event),position:state.position,rotation:decks[id].angle,ready:false};gesture=active;
-    startDeckPlayback(()=>engine.beginScratch?.(id)).then(()=>{if(gesture!==active)return;active.ready=true;engine.scratchTo?.(id,active.position);updateDecks();}).catch(error=>{if(gesture===active)gesture=null;report(error);});});
-  el.addEventListener('pointermove',event=>{if(!gesture||gesture.pointerId!==event.pointerId)return;event.preventDefault();const next=angle(event);let delta=next-gesture.angle;if(delta>Math.PI)delta-=2*Math.PI;if(delta< -Math.PI)delta+=2*Math.PI;gesture.angle=next;gesture.position=clamp(gesture.position+delta/(2*Math.PI)*1.8,0,engine.getState(id).duration);gesture.rotation+=delta*180/Math.PI;decks[id].angle=gesture.rotation;el.querySelector('.record').style.transform=`rotate(${gesture.rotation}deg)`;if(gesture.ready)engine.scratchTo?.(id,gesture.position);});
-  for(const name of ['pointerup','pointercancel','lostpointercapture'])el.addEventListener(name,end);
-  el.addEventListener('keydown',event=>{if(!['ArrowLeft','ArrowRight'].includes(event.code)||!trackFor(id))return;event.preventDefault();engine.clearLoop(id);engine.seek(id,engine.getState(id).position+(event.code==='ArrowLeft'?-.1:.1));});
+  const el=$(`#${id}-platter`),record=el.querySelector('.record');
+  platterGestures.get(id)?.dispose();
+  platterGestures.set(id,bindPlatterGesture(el,{
+    getState:()=>({...engine.getState(id),loaded:!!trackFor(id),rotation:decks[id].angle}),
+    onBegin:()=>startDeckPlayback(()=>engine.beginScratch(id)),
+    onMove:(position,timeStamp)=>engine.scratchTo(id,position,timeStamp),
+    onEnd:()=>startDeckPlayback(()=>engine.endScratch(id)).then(()=>updateDecks()),
+    onRotate:rotation=>{decks[id].angle=rotation;record.style.transform=`rotate(${rotation}deg)`;},
+    onChange:()=>updateDecks(),onError:report,
+  }));
+  el.addEventListener('keydown',event=>{if(!['ArrowLeft','ArrowRight'].includes(event.code)||!trackFor(id))return;event.preventDefault();platterGestures.get(id)?.cancel();engine.clearLoop(id);engine.seek(id,engine.getState(id).position+(event.code==='ArrowLeft'?-.1:.1));});
   $(`#${id}-keylock`).addEventListener('click',()=>{if(typeof engine.setKeyLock!=='function'){toast('音程を保つテンポ変更は準備中です。');return;}const enabled=!engine.getState(id).keyLockRequested;Promise.resolve(engine.setKeyLock(id,enabled)).then(()=>updateDecks()).catch(report);});
   for(const kind of ['wave','overview']){
     const canvas=$(`#${id}-${kind}`);let range=null;
     const currentRange=()=>kind==='overview'?{start:0,end:engine.getState(id).duration}:decks[id].waveRange||getWaveformWindow(engine.getState(id).duration,engine.getState(id).position,decks[id].waveSpan);
-    const seek=event=>{const state=engine.getState(id);if(!state.loaded)return;const r=canvas.getBoundingClientRect();engine.clearLoop(id);engine.seek(id,timeAtWaveformX(event.clientX-r.left,r.width,range||currentRange()));updateDecks();};
+    const seek=event=>{const state=engine.getState(id);if(!state.loaded)return;const r=canvas.getBoundingClientRect();platterGestures.get(id)?.cancel();engine.clearLoop(id);engine.seek(id,timeAtWaveformX(event.clientX-r.left,r.width,range||currentRange()));updateDecks();};
     canvas.addEventListener('pointerdown',event=>{if(event.button!==0)return;event.preventDefault();range={...currentRange()};canvas.setPointerCapture(event.pointerId);seek(event);});
     canvas.addEventListener('pointermove',event=>{if(canvas.hasPointerCapture(event.pointerId))seek(event);});
     for(const name of ['pointerup','pointercancel','lostpointercapture'])canvas.addEventListener(name,()=>{range=null;});
-    canvas.addEventListener('keydown',event=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.code))return;event.preventDefault();const state=engine.getState(id),step=kind==='overview'?5:decks[id].waveSpan/20;engine.clearLoop(id);engine.seek(id,event.code==='Home'?0:event.code==='End'?state.duration:state.position+(event.code==='ArrowLeft'?-step:step));updateDecks();});
+    canvas.addEventListener('keydown',event=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.code))return;event.preventDefault();platterGestures.get(id)?.cancel();const state=engine.getState(id),step=kind==='overview'?5:decks[id].waveSpan/20;engine.clearLoop(id);engine.seek(id,event.code==='Home'?0:event.code==='End'?state.duration:state.position+(event.code==='ArrowLeft'?-step:step));updateDecks();});
   }
   for(const button of $$(`[data-wave-zoom^="${id}:"]`))button.onclick=()=>{decks[id].waveSpan=clamp(decks[id].waveSpan*(button.dataset.waveZoom.endsWith(':in')?.5:2),2,32);updateDecks();};
 }
@@ -228,7 +234,7 @@ function animate(now){
   requestAnimationFrame(animate);
 }
 
-function setView(next){if(next!=='library')preview.stop();view=next;$('#play-view').classList.toggle('active',next==='play');$('#mapping-view').classList.toggle('active',next==='mapping');$('#library-section').hidden=next==='mapping';$('#library-intro').hidden=next!=='library';
+function setView(next){if(next!=='play')for(const gesture of platterGestures.values())gesture.cancel();if(next!=='library')preview.stop();view=next;$('#play-view').classList.toggle('active',next==='play');$('#mapping-view').classList.toggle('active',next==='mapping');$('#library-section').hidden=next==='mapping';$('#library-intro').hidden=next!=='library';
   $$('.workspace-tabs .tab').forEach(button=>{const active=button.dataset.view===next;button.classList.toggle('active',active);if(active)button.setAttribute('aria-current','page');else button.removeAttribute('aria-current');});if(next==='play')updateDecks();if(next==='mapping')renderMappings();updatePreview();}
 
 function renderLibrary(){
@@ -315,7 +321,7 @@ let analysisId=0;
 const pendingAnalysis=new Map();
 function analyze(buffer){
   return new Promise((resolve,reject)=>{
-    if(!worker){worker=new Worker(new URL('./analysis-worker.js?v=401613a8eaa5242c',import.meta.url),{type:'module'});worker.onmessage=({data})=>{const entry=pendingAnalysis.get(data.id);if(!entry)return;pendingAnalysis.delete(data.id);clearTimeout(entry.timer);data.error?entry.reject(new Error(data.error)):entry.resolve(data.result);};worker.onerror=()=>{for(const entry of pendingAnalysis.values()){clearTimeout(entry.timer);entry.reject(new Error('解析処理を開始できませんでした。ページを再読み込みしてください。'));}pendingAnalysis.clear();worker.terminate();worker=null;};}
+    if(!worker){worker=new Worker(new URL('./analysis-worker.js?v=9e830656f38a4042',import.meta.url),{type:'module'});worker.onmessage=({data})=>{const entry=pendingAnalysis.get(data.id);if(!entry)return;pendingAnalysis.delete(data.id);clearTimeout(entry.timer);data.error?entry.reject(new Error(data.error)):entry.resolve(data.result);};worker.onerror=()=>{for(const entry of pendingAnalysis.values()){clearTimeout(entry.timer);entry.reject(new Error('解析処理を開始できませんでした。ページを再読み込みしてください。'));}pendingAnalysis.clear();worker.terminate();worker=null;};}
     const step=Math.max(1,Math.floor(buffer.sampleRate/22050));const samples=new Float32Array(Math.ceil(buffer.length/step));
     const channels=Array.from({length:buffer.numberOfChannels},(_,i)=>buffer.getChannelData(i));
     for(let i=0;i<samples.length;i++){let value=0,count=0;for(let j=i*step;j<Math.min((i+1)*step,buffer.length);j++){for(const channel of channels){value+=channel[j];count++;}}samples[i]=value/Math.max(1,count);}
@@ -553,7 +559,7 @@ function events(){
         for(const id of ['a','b'])if(decks[id].pendingTrackId===track.id){decks[id].loadNonce++;decks[id].pendingTrackId=null;}
         if(preview.getState().trackId===track.id)preview.clear();
         bufferCache.delete(track.id);invalidateWaveform(track.id);await library.removeTrack(track.id);
-        for(const id of ['a','b'])if(decks[id].trackId===track.id){engine.pause(id);decks[id].trackId=null;decks[id].loadNonce++;}
+        for(const id of ['a','b'])if(decks[id].trackId===track.id){platterGestures.get(id)?.cancel();engine.pause(id);decks[id].trackId=null;decks[id].loadNonce++;}
         tracks=tracks.filter(t=>t.id!==track.id);playlists=await library.getPlaylists();
       });
       $('#track-dialog').close();renderLibrary();updateDecks();await storageInfo();
@@ -569,7 +575,7 @@ function events(){
   document.addEventListener('keydown',e=>{if(e.code==='Escape'&&$('#library-tools')?.open){$('#library-tools').open=false;$('#library-tools summary').focus();return;}if(e.code==='Escape'&&mapping.learning){mapping.cancelLearn();renderMappings();return;}mapping.handleKeyDown(e);});document.addEventListener('keyup',e=>mapping.handleKeyUp(e));
   window.addEventListener('resize',()=>{updateDecks();drawLibraryWaves();drawPreviewWave();});
   window.addEventListener('pageshow',event=>{pageActive=true;if(event.persisted){waveformCache=new WaveformCache();for(const id of ['a','b']){const buffer=engine.decks[id]?.buffer;if(buffer&&decks[id].trackId)prepareWaveform(decks[id].trackId,buffer);}}});
-  window.addEventListener('pagehide',()=>{pageActive=false;for(const id of ['a','b']){decks[id].loadNonce++;decks[id].pendingTrackId=null;}waveformCache.dispose();waveformJobs.clear();sourceController?.abort();sourceReader?.close();bufferCache.clear();preview.clear();for(const id of ['a','b'])engine.pause(id);});
+  window.addEventListener('pagehide',()=>{pageActive=false;for(const gesture of platterGestures.values())gesture.cancel();for(const id of ['a','b']){decks[id].loadNonce++;decks[id].pendingTrackId=null;}waveformCache.dispose();waveformJobs.clear();sourceController?.abort();sourceReader?.close();bufferCache.clear();preview.clear();for(const id of ['a','b'])engine.pause(id);});
 }
 
 async function start(){

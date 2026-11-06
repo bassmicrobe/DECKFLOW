@@ -406,3 +406,44 @@ dialog h2{font-size:20px;margin-top:0}
 @media(max-width:560px){.platter{--diameter:clamp(240px,70vw,330px)}.platter-info{right:16px;bottom:12px}.deck-wave{height:120px}.preview-waveform{height:60px}.library-section:has(.library-preview:not([hidden])){padding-bottom:205px}}
 
 button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,canvas:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+
+/* Keep two-handed performance controls reachable without shrinking the records. */
+.platter{touch-action:none;-webkit-touch-callout:none}
+.platter .record,.platter-rim{pointer-events:none}
+@media(any-pointer:coarse){
+  #play-view input[type=range],.library-section input[type=range]{height:44px;touch-action:none}
+  input[type=range]::-webkit-slider-thumb{width:24px;height:24px;margin-top:-10px}
+  .loop-size{min-width:44px;height:44px}
+  .loop-controls{flex-wrap:wrap;gap:6px}
+  .hotcue{min-height:44px}
+  .deck-overview{height:44px}
+  #play-view .mixer{position:fixed;z-index:5;left:0;right:0;bottom:0;margin:0;border-width:1px 0 0;background:#151515;grid-template-columns:minmax(0,1fr) minmax(160px,.45fr);gap:20px;padding:8px max(16px,env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+  #play-view .mixer-label{display:none}
+  #play-view .xfader-wrap{min-width:0;gap:12px}
+  #play-view .xfader-wrap .text-button{min-width:44px;min-height:44px}
+  body:has(#play-view.active){padding-bottom:calc(80px + env(safe-area-inset-bottom))}
+  body:has(#play-view.active) .toast{bottom:calc(82px + env(safe-area-inset-bottom))}
+  #play-view .deck-bottom{grid-template-columns:1fr}
+  #play-view .tempo-volume{display:grid;grid-template-columns:1fr 1fr;gap:10px 16px}
+  #play-view .loop-controls{grid-column:1/-1}
+}
+@media(any-pointer:coarse) and (min-width:950px) and (orientation:landscape) and (max-height:900px){
+  body:has(#play-view.active) .topbar{height:60px}
+  #play-view>.section-heading{height:24px;padding:4px 0}
+  #play-view .deck-top{min-height:56px;padding:8px 136px 8px 14px;gap:10px}
+  #play-view .deck-bpm{font-size:23px}
+  #play-view .wave-toolbar{position:absolute;top:6px;right:8px;padding:0;border:0}
+  #play-view .wave-toolbar>span{display:none}
+  #play-view .deck-wave{height:80px}
+  #play-view .deck-timeline{padding:4px 14px}
+  #play-view .platter-section{padding:10px 12px 6px}
+  #play-view .deck-main-controls{padding:8px 12px 0}
+}
+@media(any-pointer:coarse) and (max-width:560px){
+  #play-view .mixer{grid-template-columns:1fr;gap:0}
+  body:has(#play-view.active){padding-bottom:calc(128px + env(safe-area-inset-bottom))}
+  body:has(#play-view.active) .toast{bottom:calc(130px + env(safe-area-inset-bottom))}
+}
+@media(min-width:681px) and (max-width:1100px){
+  .library-section .preview-waveform{width:100%;flex:none}
+}
