@@ -1,18 +1,19 @@
-import {bindPlatterGesture} from './platter-gesture.js?v=9e830656f38a4042';
-import {AudioEngine} from './audio-engine.js?v=9e830656f38a4042';
-import {MappingManager} from './mappings.js?v=9e830656f38a4042';
-import {openLibrary} from './library-store.js?v=9e830656f38a4042';
-import {validateUsbLibrary} from './usb-export.js?v=9e830656f38a4042';
-import {createTrackQueue} from './track-updates.js?v=9e830656f38a4042';
-import {installFileDrop,isAudioFile} from './file-drop.js?v=9e830656f38a4042';
-import {PreviewPlayer} from './preview-player.js?v=9e830656f38a4042';
-import {AudioBufferCache} from './audio-buffer-cache.js?v=9e830656f38a4042';
-import {WaveformCache} from './waveform-cache.js?v=9e830656f38a4042';
-import {drawWaveform,getWaveformWindow,timeAtWaveformX,waveformBeats} from './waveform-view.js?v=9e830656f38a4042';
-import {indexFileList,indexDirectory,createSourceIndex,databaseCandidates,createLibraryReader} from './library-source.js?v=9e830656f38a4042';
-import {cacheSourceLibrary} from './source-import.js?v=9e830656f38a4042';
-import {parseRekordboxXml} from './rekordbox-import.js?v=9e830656f38a4042';
-import {findImportedAudio,audioPeaks,tempoAt,advanceBeats,relinkMetadata} from './import-audio.js?v=9e830656f38a4042';
+import {bindTouchSlider} from './touch-slider.js?v=7ede21fefddd1339';
+import {bindPlatterGesture} from './platter-gesture.js?v=7ede21fefddd1339';
+import {AudioEngine} from './audio-engine.js?v=7ede21fefddd1339';
+import {MappingManager} from './mappings.js?v=7ede21fefddd1339';
+import {openLibrary} from './library-store.js?v=7ede21fefddd1339';
+import {validateUsbLibrary} from './usb-export.js?v=7ede21fefddd1339';
+import {createTrackQueue} from './track-updates.js?v=7ede21fefddd1339';
+import {installFileDrop,isAudioFile} from './file-drop.js?v=7ede21fefddd1339';
+import {PreviewPlayer} from './preview-player.js?v=7ede21fefddd1339';
+import {AudioBufferCache} from './audio-buffer-cache.js?v=7ede21fefddd1339';
+import {WaveformCache} from './waveform-cache.js?v=7ede21fefddd1339';
+import {drawWaveform,getWaveformWindow,timeAtWaveformX,waveformBeats} from './waveform-view.js?v=7ede21fefddd1339';
+import {indexFileList,indexDirectory,createSourceIndex,databaseCandidates,createLibraryReader} from './library-source.js?v=7ede21fefddd1339';
+import {cacheSourceLibrary} from './source-import.js?v=7ede21fefddd1339';
+import {parseRekordboxXml} from './rekordbox-import.js?v=7ede21fefddd1339';
+import {findImportedAudio,audioPeaks,tempoAt,advanceBeats,relinkMetadata} from './import-audio.js?v=7ede21fefddd1339';
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -53,6 +54,7 @@ const trackQueue=createTrackQueue();
 const decks = {a:{trackId:null,pendingTrackId:null,loopBeats:4,loadNonce:0,angle:0,waveSpan:8,waveRange:null},b:{trackId:null,pendingTrackId:null,loopBeats:4,loadNonce:0,angle:0,waveSpan:8,waveRange:null}};
 const engine = new AudioEngine({onEnded:()=>updateDecks(),onStatus:status=>{if(status.message)toast(status.message);updateDecks();}});
 const platterGestures=new Map();
+const touchSliders=[];
 let pendingDeckPlayback=0;
 const preview = new PreviewPlayer({getAudio:id=>library?.getAudio(id),getBuffer:async(id,decode)=>{const buffer=await bufferCache.get(id,decode);prepareWaveform(id,buffer);return buffer;},onChange:()=>updatePreview()});
 const mapping = new MappingManager({actions,onAction:(id,value,phase)=>{if(phase !== 'release') dispatch(id,value).catch(report);},onChange:()=>renderMappings(),onStatus:status=>{renderMIDIStatus(status);}});
@@ -234,7 +236,7 @@ function animate(now){
   requestAnimationFrame(animate);
 }
 
-function setView(next){if(next!=='play')for(const gesture of platterGestures.values())gesture.cancel();if(next!=='library')preview.stop();view=next;$('#play-view').classList.toggle('active',next==='play');$('#mapping-view').classList.toggle('active',next==='mapping');$('#library-section').hidden=next==='mapping';$('#library-intro').hidden=next!=='library';
+function setView(next){if(next!==view)for(const slider of touchSliders)slider.cancel();if(next!=='play')for(const gesture of platterGestures.values())gesture.cancel();if(next!=='library')preview.stop();view=next;$('#play-view').classList.toggle('active',next==='play');$('#mapping-view').classList.toggle('active',next==='mapping');$('#library-section').hidden=next==='mapping';$('#library-intro').hidden=next!=='library';
   $$('.workspace-tabs .tab').forEach(button=>{const active=button.dataset.view===next;button.classList.toggle('active',active);if(active)button.setAttribute('aria-current','page');else button.removeAttribute('aria-current');});if(next==='play')updateDecks();if(next==='mapping')renderMappings();updatePreview();}
 
 function renderLibrary(){
@@ -321,7 +323,7 @@ let analysisId=0;
 const pendingAnalysis=new Map();
 function analyze(buffer){
   return new Promise((resolve,reject)=>{
-    if(!worker){worker=new Worker(new URL('./analysis-worker.js?v=9e830656f38a4042',import.meta.url),{type:'module'});worker.onmessage=({data})=>{const entry=pendingAnalysis.get(data.id);if(!entry)return;pendingAnalysis.delete(data.id);clearTimeout(entry.timer);data.error?entry.reject(new Error(data.error)):entry.resolve(data.result);};worker.onerror=()=>{for(const entry of pendingAnalysis.values()){clearTimeout(entry.timer);entry.reject(new Error('解析処理を開始できませんでした。ページを再読み込みしてください。'));}pendingAnalysis.clear();worker.terminate();worker=null;};}
+    if(!worker){worker=new Worker(new URL('./analysis-worker.js?v=7ede21fefddd1339',import.meta.url),{type:'module'});worker.onmessage=({data})=>{const entry=pendingAnalysis.get(data.id);if(!entry)return;pendingAnalysis.delete(data.id);clearTimeout(entry.timer);data.error?entry.reject(new Error(data.error)):entry.resolve(data.result);};worker.onerror=()=>{for(const entry of pendingAnalysis.values()){clearTimeout(entry.timer);entry.reject(new Error('解析処理を開始できませんでした。ページを再読み込みしてください。'));}pendingAnalysis.clear();worker.terminate();worker=null;};}
     const step=Math.max(1,Math.floor(buffer.sampleRate/22050));const samples=new Float32Array(Math.ceil(buffer.length/step));
     const channels=Array.from({length:buffer.numberOfChannels},(_,i)=>buffer.getChannelData(i));
     for(let i=0;i<samples.length;i++){let value=0,count=0;for(let j=i*step;j<Math.min((i+1)*step,buffer.length);j++){for(const channel of channels){value+=channel[j];count++;}}samples[i]=value/Math.max(1,count);}
@@ -496,6 +498,7 @@ function events(){
   });
   document.addEventListener('input',event=>{const el=event.target;if(!el.dataset.control)return;const id=el.dataset.control;const value=Number(el.value);setControl(id,id.includes('.eq.')?(value+24)/36:id.endsWith('.tempo')?value/100+.5:value);});
   $('#crossfader').addEventListener('input',e=>setControl('mixer.crossfader',Number(e.target.value)));$('#master').addEventListener('input',e=>setControl('mixer.master',Number(e.target.value)));$('#center-fader').onclick=()=>setControl('mixer.crossfader',.5);
+  for(const input of $$('input[type=range]:not([hidden])'))touchSliders.push(bindTouchSlider(input));
   $('#preview-toggle').onclick=()=>togglePreview(preview.getState().trackId).catch(report);
   $('#preview-stop').onclick=()=>preview.stop();
   $('#preview-seek').addEventListener('input',event=>preview.seek(Number(event.target.value)));
@@ -575,7 +578,7 @@ function events(){
   document.addEventListener('keydown',e=>{if(e.code==='Escape'&&$('#library-tools')?.open){$('#library-tools').open=false;$('#library-tools summary').focus();return;}if(e.code==='Escape'&&mapping.learning){mapping.cancelLearn();renderMappings();return;}mapping.handleKeyDown(e);});document.addEventListener('keyup',e=>mapping.handleKeyUp(e));
   window.addEventListener('resize',()=>{updateDecks();drawLibraryWaves();drawPreviewWave();});
   window.addEventListener('pageshow',event=>{pageActive=true;if(event.persisted){waveformCache=new WaveformCache();for(const id of ['a','b']){const buffer=engine.decks[id]?.buffer;if(buffer&&decks[id].trackId)prepareWaveform(decks[id].trackId,buffer);}}});
-  window.addEventListener('pagehide',()=>{pageActive=false;for(const gesture of platterGestures.values())gesture.cancel();for(const id of ['a','b']){decks[id].loadNonce++;decks[id].pendingTrackId=null;}waveformCache.dispose();waveformJobs.clear();sourceController?.abort();sourceReader?.close();bufferCache.clear();preview.clear();for(const id of ['a','b'])engine.pause(id);});
+  window.addEventListener('pagehide',()=>{pageActive=false;for(const slider of touchSliders)slider.cancel();for(const gesture of platterGestures.values())gesture.cancel();for(const id of ['a','b']){decks[id].loadNonce++;decks[id].pendingTrackId=null;}waveformCache.dispose();waveformJobs.clear();sourceController?.abort();sourceReader?.close();bufferCache.clear();preview.clear();for(const id of ['a','b'])engine.pause(id);});
 }
 
 async function start(){
