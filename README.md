@@ -1,5 +1,7 @@
 # DECKFLOW
 
+本番アプリ: **[deckflow-five.vercel.app](https://deckflow-five.vercel.app/)** — iPadのSafariからアクセスできます。共有メニューから「ホーム画面に追加」でPWAとして利用できます。
+
 **曲を整える。流れをつくる。**
 
 手元の音源を整理・解析し、タッチでもMIDIでもプレイできるDJワークスペース。iPad miniで外に持ち出し、CDJ-3000用USBの準備につなげることを目指しています。

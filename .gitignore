@@ -10,3 +10,4 @@ DerivedData/
 xcuserdata/
 .local/
 native/ios/DECKFLOW/Resources/Web/
+.vercel/

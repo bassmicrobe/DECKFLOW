@@ -141,3 +141,12 @@ JSONのnative保存・共有はソース確認までです。実機での保存�
 - Dockerは最新コードを隔離Compose projectでbuild／起動しhealthy、uid101、read-onlyを確認。69のprecache URLと30 JS／40依存参照、波形Worker、MIME、cache header、404、nginx -tが成功。検証コンテナとnetworkはdown済み。
 - Vercel用にbuildCommand/outputDirectory/headersを設定しREADMEへ手順を追加。Vercelへの実デプロイは行っていない。
 - 物理iPad／Safariでの音声遅延・長時間安定性は未検証。帯域分離は表示用で、rekordbox内部の解析アルゴリズムを再現するものではない。
+
+## 2026-11-07 — Vercel本番公開
+
+- Vercel team `cybereye-technology`、project `deckflow` に静的Webアプリを公開。Node.js 22.x、`npm run build`、出力 `dist`。追加の環境変数・データベース・Functionsは不要。
+- 本番URL: https://deckflow-five.vercel.app/ 。初回deployment `dpl_DewjTPDJ4rqXpWPUk1qtdG2CAQny`、アプリcommit `e95beee61d9af8e81210a46f18d809ea53591875`、target production、READY。
+- 認証Cookieなし・iPad User-Agentで本番HTMLがHTTPS 200、アプリ本文を確認。ログイン用ページへの遷移なし。Vercelのpreview保護設定は変更していない。
+- Service Workerの69資産を認証なしでGETし、すべて200。配信バイトのSHA-256がローカルbuildと全件一致。Worker／Workletを含むJavaScriptのMIMEを確認。
+- 実ブラウザで本番アプリの起動・ライブラリ画面を確認。物理iPadの音声出力・USB選択・長時間動作は未確認。
+- localhost／Sitesと本番URLは別originのため、以前のブラウザ保存曲は自動移行しない。本番URLで音源／ライブラリを選び直す。
