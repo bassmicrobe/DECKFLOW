@@ -4,6 +4,7 @@
  * Original MIT notice: vendor/licenses/baken-MIT.txt. This is not a general PDB editor.
  */
 import {readFile, realpath} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
 import {resolve, sep} from 'node:path';
 const PAGE = 4096;
 const error = () => { throw new Error('Device Libraryの構造検証に失敗しました。'); };
@@ -79,16 +80,19 @@ export function inspectAnalysis(bytes) {
   if (!(bytes instanceof Uint8Array) || bytes.length < 28 || new TextDecoder().decode(bytes.subarray(0,4)) !== 'PMAI' || u32(bytes,8,false) !== bytes.length) error();
   let at = u32(bytes,4,false);
   if (at < 28 || at > bytes.length) error();
-  const tags = [], beats = [], cues = [];
+  const tags = [], beats = [], cues = [], detailedCues = [];
+  const sectionHashes = {};
   let path = null;
   while (at < bytes.length) {
     const length = u32(bytes,at + 8,false), header = u32(bytes,at + 4,false);
     if (length < 12 || header < 12 || header > length || at + length > bytes.length) error();
     const section = bytes.subarray(at, at + length), tag = new TextDecoder().decode(section.subarray(0,4));
     tags.push(tag);
+    (sectionHashes[tag] ??= []).push(createHash('sha256').update(section).digest('hex'));
     if (tag === 'PPTH') {
-      const body = section.subarray(16);
-      if (body.length % 2) error();
+      const size = u32(section,12,false);
+      if (size < 2 || size % 2 || 16 + size !== section.length) error();
+      const body = section.subarray(16,16 + size);
       path = new TextDecoder('utf-16be', {fatal:true}).decode(body).replace(/\0+$/,'');
     }
     if (tag === 'PQTZ') {
@@ -103,12 +107,30 @@ export function inspectAnalysis(bytes) {
       for (let i = 0; i < count; i++) {
         const start = 24 + i * 56;
         if (new TextDecoder().decode(section.subarray(start,start + 4)) !== 'PCPT') error();
-        cues.push({number:u32(section,start + 12,false), time:u32(section,start + 32,false) / 1000});
+        const end = u32(section,start + 36,false);
+        cues.push({number:u32(section,start + 12,false), time:u32(section,start + 32,false) / 1000,
+          type:section[start + 28] === 2 ? 4 : 0, end:end === 0xffffffff ? null : end / 1000});
       }
+    }
+    if (tag === 'PCO2') {
+      const count = u16(section,16,false);
+      let cursor = 20;
+      for (let i = 0; i < count; i++) {
+        if (new TextDecoder().decode(section.subarray(cursor,cursor + 4)) !== 'PCP2') error();
+        const size = u32(section,cursor + 8,false), commentSize = u32(section,cursor + 40,false);
+        if (size < 88 || cursor + size > section.length || commentSize % 2 || 88 + commentSize !== size) error();
+        const end = u32(section,cursor + 24,false);
+        detailedCues.push({number:u32(section,cursor + 12,false), type:section[cursor + 16] === 2 ? 4 : 0,
+          time:u32(section,cursor + 20,false) / 1000, end:end === 0xffffffff ? null : end / 1000,
+          name:new TextDecoder('utf-16be',{fatal:true}).decode(section.subarray(cursor + 44,cursor + 44 + commentSize)).replace(/\0+$/,''),
+          colorCode:section[cursor + 44 + commentSize], color:Array.from(section.subarray(cursor + 45 + commentSize,cursor + 48 + commentSize))});
+        cursor += size;
+      }
+      if (cursor !== section.length) error();
     }
     at += length;
   }
-  return {path, tags, beats, cues};
+  return {path, tags, beats, cues, detailedCues, sectionHashes};
 }
 
 export async function safeExportPath(root, devicePath) {
@@ -130,8 +152,10 @@ export async function readExport(root) {
     if (!/\.DAT$/i.test(analysis)) error();
     const dat = inspectAnalysis(await readFile(analysis));
     const ext = inspectAnalysis(await readFile(analysis.replace(/\.DAT$/i,'.EXT')));
-    const two = inspectAnalysis(await readFile(analysis.replace(/\.DAT$/i,'.2EX')));
-    if ([dat,ext,two].some(value => value.path !== track.path)) error();
+    let two = null;
+    try { two = inspectAnalysis(await readFile(analysis.replace(/\.DAT$/i,'.2EX'))); }
+    catch (cause) { if (cause.code !== 'ENOENT') throw cause; }
+    if ([dat,ext,two].filter(Boolean).some(value => value.path !== track.path)) error();
     tracks.push({...track, audio, analysis, dat, ext, two});
   }
   return {...pdb, tracks};

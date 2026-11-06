@@ -66,3 +66,16 @@
 .preview-settings-foot{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;gap:14px;color:#a3b8b1;font-size:10px;line-height:1.6;margin-top:-10px}
 .preview-settings-foot .text-button{white-space:nowrap;color:var(--teal)}
 @media(max-width:620px){.preview-adjustments{grid-template-columns:minmax(0,1fr);gap:10px}.preview-settings-foot{align-items:flex-start;font-size:9px}.preview-settings-foot .text-button{font-size:10px}.preview-eq{gap:12px}.preview-eq label{gap:3px}}
+
+/* XML preparation survives audio relinking and remains visible in the library. */
+.link-audio-button{min-height:44px;border:1px solid var(--line);border-radius:6px;color:var(--accent,#edaa73);background:transparent;padding:6px 8px;font-size:10px;white-space:nowrap;cursor:pointer}
+.preview-track-button:disabled{opacity:.35;cursor:default}
+.import-details{margin:12px 0;padding:12px;background:#ffffff06;border:1px solid var(--line);border-radius:8px;line-height:1.8;overflow-wrap:anywhere}
+.import-details ul{max-height:180px;overflow:auto;margin:8px 0;padding-left:18px}
+#xml-result{overflow-wrap:anywhere;max-height:150px;overflow:auto}
+#track-grid-note{font-size:11px;line-height:1.8;color:var(--muted)}
+.hotcues{grid-template-columns:repeat(8,minmax(0,1fr))}.hotcue{min-width:0}.hotcue small{font-size:7px}
+@media(max-width:1100px) and (min-width:561px){.hotcues{gap:4px;padding-left:12px;padding-right:12px}.hotcue{font-size:12px}.hotcue small{font-size:6px}}
+@media(max-width:380px){.hotcues{gap:5px}.link-audio-button{font-size:9px;padding:5px}}
+
+@media(max-width:1100px){.hotcues{grid-template-columns:repeat(4,minmax(0,1fr))}.hotcue{min-height:44px}.hotcue small{font-size:8px}}

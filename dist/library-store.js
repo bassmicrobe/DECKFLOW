@@ -1,3 +1,4 @@
+import {normalizeRekordboxMetadata, normalizeFolderPath, parseRekordboxLocation} from './rekordbox-model.js';
 /**
  * DECKFLOW local library. Metadata and encoded audio live in separate stores,
  * so listing a large library does not read every audio Blob into memory.
@@ -55,8 +56,9 @@ function normalizeTrack(input) {
   const track = object(input, '曲情報');
   const duration = finite(track.duration, '曲の長さ', Number.MIN_VALUE, 86_400);
   const bpm = track.bpm == null ? null : finite(track.bpm, 'BPM', 30, 300);
-  const hotcues = track.hotcues ?? [null, null, null, null];
-  if (!Array.isArray(hotcues) || hotcues.length !== 4) invalid('HOT CUEは4個の位置またはnullで指定してください。');
+  const hotcues = track.hotcues ?? Array(8).fill(null);
+  if (!Array.isArray(hotcues) || ![4, 8].includes(hotcues.length)) invalid('HOT CUEは8個（旧形式は4個）の位置またはnullで指定してください。');
+  if (track.audioMissing !== undefined && typeof track.audioMissing !== 'boolean') invalid('音源の接続状態が正しくありません。');
   const peaks = track.peaks ?? [];
   if ((!Array.isArray(peaks) && !(peaks instanceof Float32Array)) || peaks.length > MAX_PEAKS) {
     invalid(`波形データは${MAX_PEAKS}個以内で指定してください。`);
@@ -71,12 +73,14 @@ function normalizeTrack(input) {
     duration,
     beatOffset: finite(track.beatOffset ?? 0, '拍の開始位置', 0, duration),
     cue: finite(track.cue ?? 0, 'CUEの位置', 0, duration),
-    hotcues: hotcues.map(value => value == null ? null : finite(value, 'HOT CUEの位置', 0, duration)),
+    hotcues: Array.from({length: 8}, (_, index) => hotcues[index] == null ? null : finite(hotcues[index], 'HOT CUEの位置', 0, duration)),
     filename: filename(track.filename),
     fingerprint: text(track.fingerprint ?? '', '音源の識別情報', 1_024, true),
     addedAt: finite(addedAt, '追加日時', 0, 8_640_000_000_000_000),
     peaks: Array.from(peaks, value => finite(value, '波形データ', 0, 1)),
     confidence: finite(track.confidence ?? 0, '解析の信頼度', 0, 1),
+    audioMissing: track.audioMissing ?? false,
+    ...normalizeRekordboxMetadata(track, duration),
   };
 }
 
@@ -99,7 +103,7 @@ function normalizePlaylists(input, trackIds = null) {
       contained.add(trackId);
       return trackId;
     });
-    return {id, name: text(playlist.name, 'プレイリスト名', 80), trackIds: references};
+    return {id, name: text(playlist.name, 'プレイリスト名', 80), trackIds: references, folderPath: normalizeFolderPath(playlist.folderPath)};
   });
 }
 
@@ -133,6 +137,35 @@ export function validateLibrarySnapshot(input) {
   return result;
 }
 
+/** An XML import adds new IDs only; existing edits and encoded audio stay intact. */
+function mergeImport(existingTracks, existingPlaylists, incomingTracks, incomingPlaylists) {
+  const previous = new Map(existingTracks.map(track => [track.id, track]));
+  const next = new Map(previous);
+  for (const track of incomingTracks) {
+    const existing = previous.get(track.id);
+    if (existing) {
+      if (!existing.rekordbox || !track.rekordbox || existing.rekordbox.trackId !== track.rekordbox.trackId || parseRekordboxLocation(existing.rekordbox.location).identity !== parseRekordboxLocation(track.rekordbox.location).identity) {
+        invalid('曲IDが既存の別の曲と衝突しています。取り込みは保存していません。');
+      }
+    } else next.set(track.id, track);
+  }
+  const playlistMap = new Map(existingPlaylists.map(playlist => [playlist.id, playlist]));
+  const addedPlaylists = incomingPlaylists.filter(playlist => !playlistMap.has(playlist.id));
+  for (const playlist of addedPlaylists) playlistMap.set(playlist.id, playlist);
+  if (next.size > MAX_TRACKS) invalid(`曲は${MAX_TRACKS}件以内で指定してください。`);
+  const playlists = normalizePlaylists([...playlistMap.values()], new Set(next.keys()));
+  return {tracks: [...next.values()], playlists, result: {
+    addedTracks: next.size - previous.size, addedPlaylists: addedPlaylists.length,
+    skippedTracks: incomingTracks.length - (next.size - previous.size), skippedPlaylists: incomingPlaylists.length - addedPlaylists.length,
+  }};
+}
+
+function validateImport(tracks, playlists) {
+  const candidate = validateLibrarySnapshot({format: 'deckflow.library', version: 1, tracks, playlists: []});
+  candidate.playlists = normalizePlaylists(playlists);
+  return candidate;
+}
+
 function checkBlob(blob) {
   if (blob !== undefined && !(blob instanceof Blob)) invalid('保存する音源はBlobまたはFileで指定してください。');
 }
@@ -158,6 +191,13 @@ class MemoryLibrary {
     checkBlob(blob);
     this.tracks.set(track.id, track);
     if (blob !== undefined) this.audio.set(track.id, blob);
+  }
+  async importTracks(tracks, playlists) {
+    const candidate = validateImport(tracks, playlists);
+    const merged = mergeImport([...this.tracks.values()], this.playlists, candidate.tracks, candidate.playlists);
+    this.tracks = new Map(merged.tracks.map(track => [track.id, track]));
+    this.playlists = merged.playlists;
+    return merged.result;
   }
   async getAudio(id) { identifier(id, '曲ID'); return this.audio.get(id) ?? null; }
   async removeTrack(id) {
@@ -227,6 +267,27 @@ class IndexedLibrary {
     return this._transaction(blob === undefined ? ['tracks'] : ['tracks', 'audio'], 'readwrite', transaction => {
       transaction.objectStore('tracks').put(track);
       if (blob !== undefined) transaction.objectStore('audio').put(blob, track.id);
+    });
+  }
+
+  async importTracks(tracks, playlists) {
+    const candidate = validateImport(tracks, playlists);
+    return this._transaction(['tracks', 'config'], 'readwrite', (transaction, done, fail) => {
+      const trackStore = transaction.objectStore('tracks'), config = transaction.objectStore('config');
+      const trackRequest = trackStore.getAll(), playlistRequest = config.get('playlists');
+      let existingTracks, existingPlaylists;
+      const commit = () => {
+        if (!existingTracks || !existingPlaylists) return;
+        try {
+          const merged = mergeImport(existingTracks.map(normalizeTrack), normalizePlaylists(existingPlaylists), candidate.tracks, candidate.playlists);
+          const existingIds = new Set(existingTracks.map(track => track.id));
+          for (const track of merged.tracks) if (!existingIds.has(track.id)) trackStore.put(track);
+          config.put(merged.playlists, 'playlists');
+          done(merged.result);
+        } catch (error) { fail(error); }
+      };
+      trackRequest.onsuccess = () => { existingTracks = trackRequest.result; commit(); };
+      playlistRequest.onsuccess = () => { existingPlaylists = playlistRequest.result ?? []; commit(); };
     });
   }
 

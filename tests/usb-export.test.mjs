@@ -5,7 +5,7 @@ import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {createHash} from 'node:crypto';
 import {validateUsbLibrary, buildRekordboxXml, encodeRekordboxLocation} from '../dist/usb-export.js';
-import {exportUsb, resolveAudioFiles} from '../tools/export-usb.mjs';
+import {exportUsb, resolveAudioFiles, verifyCueMetadata} from '../tools/export-usb.mjs';
 import {inspectPdb, inspectAnalysis, safeExportPath, readExport} from '../tools/usb-inspect.mjs';
 
 const track = (id='t1', overrides={}) => ({id, title:'曲 & <test> "A"', artist:'DJ 日本語', bpm:128,
@@ -111,4 +111,101 @@ test('real baken CDJ-3000 export: PDB/ANLZ/cues/playlist order and audio hashes 
     assert.equal(dry.dryRun,true);
     await assert.rejects(lstat(dryOut),{code:'ENOENT'});
   } finally {await rm(dir,{recursive:true,force:true});}
+});
+
+test('XML export keeps variable TEMPO, eight cues, named colored loops and nested playlist paths', () => {
+  const a=track('t1',{hotcues:[.1,null,null,null,null,null,null,4],tempos:[{start:.1,bpm:128,meter:'4/4',beat:3},{start:2,bpm:150,meter:'4/4',beat:1}],
+    positionMarks:[{name:'Memory & loop',type:4,start:1,end:1.5,num:-1,color:null},{name:'Final H',type:0,start:4,end:null,num:7,color:[230,40,40]}]});
+  const source=library([a]);source.playlists[0].folderPath=['Sets','2026'];
+  const {xml}=buildRekordboxXml(source,new Map([['t1','/Music/a.wav']]));
+  assert.match(xml,/Inizio="2.000000" Bpm="150.000000"/);
+  assert.match(xml,/Name="Final H" Type="0" Start="4.000000" Num="7" Red="230" Green="40" Blue="40"/);
+  assert.match(xml,/Name="Memory &amp; loop" Type="4" Start="1.000000" Num="-1" End="1.500000"/);
+  assert.match(xml,/Type="0" Name="Sets"/);assert.match(xml,/Type="0" Name="2026"/);
+  assert.throws(()=>validateUsbLibrary(library([track('bad',{tempos:[{start:0,bpm:128,meter:'3/4',beat:1}]} )])),/4\/4/);
+});
+
+test('real ANLZ carry-over keeps waveform/grid bytes, updates cues, handles old caches, and never guesses basenames',
+  {skip:!baken,timeout:120000},async()=>{
+  const {rewriteAnalysisPath}=await import('../tools/analysis-source.mjs');
+  const dir=await mkdtemp(join(tmpdir(),'deckflow-carry-test-'));
+  try {
+    const audio=join(dir,'audio');await mkdir(audio);
+    const a=track('t1',{hotcues:[.125,null,null,null,null,null,null,4],
+      tempos:[{start:.125,bpm:128,meter:'4/4',beat:1},{start:2,bpm:150,meter:'4/4',beat:1}],
+      positionMarks:[{name:'Memory loop',type:4,start:1,end:1.5,num:-1,color:null},{name:'Hot H',type:0,start:4,end:null,num:7,color:[230,40,40]}]});
+    await writeFile(join(audio,a.filename),wav(128));
+    const json=join(dir,'library.json'), initial=library([a]);initial.playlists[0].folderPath=['Sets','Evening'];
+    await writeFile(json,JSON.stringify(initial));
+    const sourceExport=join(dir,'source-device');
+    await exportUsb({libraryPath:json,audioDir:audio,out:sourceExport,bakenPath:baken,quiet:true});
+    const first=(await readExport(sourceExport)).tracks[0];
+    const cache=join(dir,'cache'), relative='P001/track/ANLZ0000.DAT', dat=join(cache,relative);
+    await mkdir(join(cache,'P001/track'),{recursive:true});
+    const origin='/Original Music/'+a.filename;
+    const originals=new Map();
+    for(const extension of ['DAT','EXT','2EX']) {
+      const bytes=rewriteAnalysisPath(await readFile(first.analysis.replace(/\.DAT$/,'.'+extension)),origin);
+      // Distinct source waveform proves that the exporter did not reanalyse it.
+      if(extension==='DAT'){
+        let offset=bytes.readUInt32BE(4);
+        while(offset<bytes.length){const len=bytes.readUInt32BE(offset+8);if(bytes.toString('ascii',offset,offset+4)==='PWAV'){bytes[offset+len-1]^=7;break;}offset+=len;}
+      }
+      const file=dat.replace(/\.DAT$/,'.'+extension);await writeFile(file,bytes);originals.set(file,hash(bytes));
+    }
+    a.rekordbox={trackId:'42',location:encodeRekordboxLocation(origin)};
+    a.positionMarks[1]={...a.positionMarks[1],name:'Updated H',start:4.25};a.hotcues[7]=4.25;
+    await writeFile(json,JSON.stringify(initial));
+    const out=join(dir,'reused-device'), report=await exportUsb({libraryPath:json,audioDir:audio,out,bakenPath:baken,analysisDir:cache,quiet:true});
+    assert.equal(report.tracks[0].analysis.status,'reused');
+    const copied=(await readExport(out)).tracks[0];assert.deepEqual(copied.two.sectionHashes.PWV7,first.two.sectionHashes.PWV7);
+    assert.deepEqual(copied.dat.sectionHashes.PWAV,inspectAnalysis(await readFile(dat)).sectionHashes.PWAV);
+    assert.deepEqual(copied.dat.sectionHashes.PQTZ,first.dat.sectionHashes.PQTZ);
+    assert.ok(copied.ext.detailedCues.some(cue=>cue.number===8&&cue.time===4.25&&cue.name==='Updated H'&&cue.colorCode===0x2a));
+    assert.ok(copied.dat.cues.some(cue=>cue.number===0&&cue.type===4&&cue.time===1&&cue.end===1.5));
+    for(const [file,before]of originals)assert.equal(hash(await readFile(file)),before,'original ANLZ stays unchanged');
+    // No 2EX: older rekordbox analyses retain their available waveforms.
+    await rm(dat.replace(/\.DAT$/,'.2EX'));originals.delete(dat.replace(/\.DAT$/,'.2EX'));
+    const oldOut=join(dir,'older-device');await exportUsb({libraryPath:json,audioDir:audio,out:oldOut,bakenPath:baken,analysisDir:cache,quiet:true});
+    assert.equal((await readExport(oldOut)).tracks[0].two,null);
+    // A stale second tempo must not slip through baken's first-tempo-only matcher.
+    a.tempos[1].bpm=151;await writeFile(json,JSON.stringify(initial));
+    const rejectedOut=join(dir,'stale-device');
+    await assert.rejects(exportUsb({libraryPath:json,audioDir:audio,out:rejectedOut,bakenPath:baken,analysisDir:cache,quiet:true}),/ビートグリッド/);
+    await assert.rejects(lstat(rejectedOut),{code:'ENOENT'});a.tempos[1].bpm=150;
+    // Same name at another full path is not enough evidence of identity.
+    a.rekordbox.location=encodeRekordboxLocation('/Different/'+a.filename);await writeFile(json,JSON.stringify(initial));
+    const fallback=await exportUsb({libraryPath:json,audioDir:audio,out:join(dir,'generated-device'),bakenPath:baken,analysisDir:cache,quiet:true});
+    assert.equal(fallback.tracks[0].analysis.status,'generated');
+    // Modern caches with ?/name require an explicit mapping, still grid checked.
+    for(const file of originals.keys())await writeFile(file,rewriteAnalysisPath(await readFile(file),'?/'+a.filename));
+    const map=join(dir,'analysis-map.json');await writeFile(map,JSON.stringify({format:'deckflow.analysis-map',version:1,tracks:{t1:relative}}));
+    const mapped=await exportUsb({libraryPath:json,audioDir:audio,out:join(dir,'mapped-device'),bakenPath:baken,analysisDir:cache,analysisMapPath:map,quiet:true});
+    assert.equal(mapped.tracks[0].analysis.reason,'explicit-analysis-map');
+    await writeFile(map,JSON.stringify({format:'deckflow.analysis-map',version:1,tracks:{t1:'../ANLZ0000.DAT'}}));
+    await assert.rejects(exportUsb({libraryPath:json,audioDir:audio,out:join(dir,'escape-device'),bakenPath:baken,analysisDir:cache,analysisMapPath:map,quiet:true}),/相対ANLZ/);
+  }finally{await rm(dir,{recursive:true,force:true});}
+});
+
+
+test('cue readback rejects a lost color and accepts nearest device palette color',()=>{
+  const source=track('colored',{positionMarks:[{name:'H',type:0,start:1,end:null,num:7,color:[229,39,40]}]});
+  const row={number:8,time:1,type:0,end:null,name:'H',colorCode:0x2a,color:[255,0,0]};
+  const device={dat:{cues:[]},ext:{cues:[row],detailedCues:[row]}};
+  verifyCueMetadata(source,device);
+  assert.throws(()=>verifyCueMetadata({...source,positionMarks:[]},device),/CUEの数/);
+  row.colorCode=0;row.color=[26,255,0];
+  assert.throws(()=>verifyCueMetadata(source,device),/色/);
+  assert.throws(()=>validateUsbLibrary(library([track('memory-color',{positionMarks:[{name:'Memory',type:0,start:1,end:null,num:-1,color:[230,40,40]}]})])),/色付きメモリーCUE/);
+});
+
+test('fractional-duration tail keeps BPM, beat number and ordering validation',async()=>{
+  const {expectedBeats,verifyBeatGrid}=await import('../tools/analysis-source.mjs');
+  const source=track('tail',{duration:5,bpm:120,beatOffset:0});
+  const beats=expectedBeats({...source,duration:6});
+  verifyBeatGrid(source,beats);
+  for(const change of [{bpm:0},{beat:1},{time:5.2}]) {
+    const damaged=beats.map(beat=>({...beat}));damaged[damaged.length-1]={...damaged.at(-1),...change};
+    assert.throws(()=>verifyBeatGrid(source,damaged),/ビートグリッド/);
+  }
 });

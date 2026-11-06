@@ -51,6 +51,12 @@ node tools/export-usb.mjs \
 
 このhelperは既存フォルダへの更新、削除、USBの初期化を行いません。
 
+## 既存波形・グリッドを引き継ぐ
+
+上のコマンドに `--analysis-dir /path/to/USBANLZ` を追加すると、XMLのLocationまたは現在の音源フルパスと照合できたANLZをコピーして利用します。元の波形とビートデータは変更せず、出力後にバイト列のSHA-256を比較します。曲ごとの引き継ぎ／生成結果はレポートの `analysis.status` に記録します。
+
+フルパスを持たない解析ファイルには、曲IDと相対DATパスを指定する `--analysis-map map.json` を使います。指定方法と色・拍子・キャッシュ形式の制限は [REKORDBOX_IMPORT.md](REKORDBOX_IMPORT.md) を参照してください。ANLZとXMLのグリッドが矛盾するときは、出力作成前に停止します。
+
 ## 4. 専用USBへ配置して実機確認する
 
 生成された `PIONEER/` と `Contents/` を、対応するファイルシステムの**専用USBの直下**に配置します。外側の `DECKFLOW-NEW-EXPORT/` フォルダごと入れると、CDJはライブラリを見つけません。既存rekordbox USBへ重ねず、別のUSBを使ってください。

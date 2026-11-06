@@ -17,6 +17,6 @@ DECKFLOW includes or invokes the following third-party software. The licenses fo
 - Reviewed revision: `50d2ba07fdad49d3a95e02d2951ac7a67197e85a`.
 - License: MIT; complete notice: `vendor/licenses/baken-MIT.txt`.
 - baken is built locally by `tools/setup-usb-exporter.mjs`, not shipped inside the Web app. Its dependency licenses also apply to any separately redistributed native binary.
-- `tools/usb-inspect.mjs` retains attribution for its reader layouts derived from the upstream MIT source.
+- `tools/usb-inspect.mjs`, `tools/analysis-source.mjs` and `tools/export-usb.mjs` retain attribution for their reader layouts, beat expansion, path rewrite and cue palette derived from the upstream MIT source.
 
 The original generated demo audio is created by DECKFLOW in the browser. No third-party music, Pioneer/AlphaTheta artwork or B2B Studio assets are bundled.

@@ -5,6 +5,8 @@ import {validateUsbLibrary} from './usb-export.js';
 import {createTrackQueue} from './track-updates.js';
 import {installFileDrop,isAudioFile} from './file-drop.js';
 import {PreviewPlayer} from './preview-player.js';
+import {parseRekordboxXml} from './rekordbox-import.js';
+import {findImportedAudio,audioPeaks,tempoAt,barPositions,advanceBeats,relinkMetadata} from './import-audio.js';
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -21,7 +23,7 @@ function askPlaylistName(){return new Promise(resolve=>{const dialog=$('#text-di
 
 const actions = [];
 for (const deck of ['a','b']) {
-  for (const [name,label] of [['play','再生 / 一時停止'],['cue','CUEへ戻る'],['loop','ループ ON / OFF'],['sync','BPM SYNC'],...Array.from({length:4},(_,i)=>[`hotcue${i+1}`,`HOT CUE ${i+1}`])]) actions.push({id:`${deck}.${name}`,label,kind:'trigger'});
+  for (const [name,label] of [['play','再生 / 一時停止'],['cue','CUEへ戻る'],['loop','ループ ON / OFF'],['sync','BPM SYNC'],...Array.from({length:8},(_,i)=>[`hotcue${i+1}`,`HOT CUE ${i+1}`])]) actions.push({id:`${deck}.${name}`,label,kind:'trigger'});
   for (const [name,label] of [['volume','チャンネル音量'],['tempo','テンポ'],['eq.low','EQ LOW'],['eq.mid','EQ MID'],['eq.high','EQ HIGH']]) actions.push({id:`${deck}.${name}`,label,kind:'continuous'});
 }
 actions.push({id:'mixer.crossfader',label:'クロスフェーダー',kind:'continuous'},{id:'mixer.master',label:'マスター音量',kind:'continuous'},{id:'mixer.center',label:'クロスフェーダーを中央へ',kind:'trigger'});
@@ -32,6 +34,7 @@ let activePlaylist = 'all';
 let mappingGroup = 'all';
 let importing = false;
 let editingTrack = null;
+let relinkTrack = null;
 let view = 'library';
 const trackQueue=createTrackQueue();
 const decks = {a:{trackId:null,pendingTrackId:null,loopBeats:4,loadNonce:0,angle:0},b:{trackId:null,pendingTrackId:null,loopBeats:4,loadNonce:0,angle:0}};
@@ -47,7 +50,7 @@ function renderDecks() {
     <div class="deck-timeline"><span class="current-time" id="${id}-time">0:00</span><span id="${id}-remaining">− 0:00</span></div>
     <div class="platter-section"><button class="platter" id="${id}-platter" aria-label="デッキ ${id.toUpperCase()} プラッター。ドラッグでスクラッチ、矢印キーで前後へ移動" title="指で前後に回すとスクラッチ"><span class="record"><span class="record-grooves"></span><span class="record-label"><b>${id.toUpperCase()}</b><small>DECKFLOW</small><i></i></span><span class="record-marker"></span></span><span class="platter-rim"></span></button><div class="platter-info"><span class="eyebrow">TOUCH VINYL</span><span class="platter-status" id="${id}-scratch-state">HOLD + DRAG</span><button class="keylock-button" id="${id}-keylock" aria-pressed="false">KEY LOCK</button><span class="scratch-tip">前後に回してスクラッチ</span></div></div>
     <div class="deck-main-controls"><button class="transport" data-action="${id}.cue" aria-label="デッキ ${id.toUpperCase()} CUEへ戻る">CUE</button><button class="transport play" data-action="${id}.play" id="${id}-play" aria-label="デッキ ${id.toUpperCase()} 再生" aria-pressed="false">▶</button><button class="transport" data-action="${id}.sync" aria-label="デッキ ${id.toUpperCase()} BPMを同期">SYNC</button><button class="transport" data-action="${id}.loop" id="${id}-loop" aria-label="デッキ ${id.toUpperCase()} ループ" aria-pressed="false">LOOP</button></div>
-    <div class="hotcues">${[0,1,2,3].map(i=>`<button class="hotcue" data-hotcue="${id}:${i}" id="${id}-hotcue-${i}" aria-label="デッキ ${id.toUpperCase()} HOT CUE ${i+1}" title="未設定なら現在位置を保存。設定後はジャンプ。Shift＋クリックで解除">${i+1}<small>HOT CUE</small></button>`).join('')}</div>
+    <div class="hotcues">${Array.from({length:8},(_,i)=>i).map(i=>`<button class="hotcue" data-hotcue="${id}:${i}" id="${id}-hotcue-${i}" aria-label="デッキ ${id.toUpperCase()} HOT CUE ${i+1}" title="未設定なら現在位置を保存。設定後はジャンプ。Shift＋クリックで解除">${i+1}<small>HOT CUE</small></button>`).join('')}</div>
     <div class="deck-bottom"><div class="eq-controls">${['low','mid','high'].map(band=>`<div class="eq-control"><label for="${id}-eq-${band}">${band.toUpperCase()}</label><input id="${id}-eq-${band}" data-control="${id}.eq.${band}" type="range" min="-24" max="12" step="0.1" value="0" aria-label="デッキ ${id.toUpperCase()} EQ ${band}"><output id="${id}-eq-${band}-value">0.0</output></div>`).join('')}</div><div class="tempo-volume"><div class="tempo-control"><label for="${id}-tempo">TEMPO <output id="${id}-tempo-value">+0.0%</output></label><input id="${id}-tempo" data-control="${id}.tempo" type="range" min="-50" max="50" step="0.1" value="0" aria-label="デッキ ${id.toUpperCase()} テンポ"></div><div class="volume-control"><label for="${id}-volume">LEVEL <output id="${id}-volume-value">85%</output></label><input id="${id}-volume" data-control="${id}.volume" type="range" min="0" max="1" step="0.01" value="0.85" aria-label="デッキ ${id.toUpperCase()} 音量"></div><div class="loop-controls"><span>BEATS</span>${[1,2,4,8].map(n=>`<button class="loop-size${n===4?' active':''}" data-loop-size="${id}:${n}" aria-label="デッキ ${id.toUpperCase()} ${n}拍ループ">${n}</button>`).join('')}</div></div></div></article>`).join('');
   for (const id of ['a','b']) bindPlatter(id);
 }
@@ -84,6 +87,7 @@ function setControl(id,value) {
 const trackFor = deck => tracks.find(t=>t.id===decks[deck]?.trackId);
 async function loadDeck(deck,trackId) {
   const track=tracks.find(t=>t.id===trackId);if(!track)return;
+  if(track.audioMissing){relinkTrack=trackId;$('#link-audio-file').click();return;}
   if(engine.getState(deck).playing && !await askConfirm(`デッキ ${deck.toUpperCase()} は再生中です。曲を入れ替えますか？`))return;
   const nonce=++decks[deck].loadNonce;
   decks[deck].pendingTrackId=trackId;
@@ -100,9 +104,9 @@ async function hotCue(deck,index,clear=false){
   const state=engine.getState(deck);const pos=Math.min(state.position,Math.max(0,state.duration-.001));
   await trackQueue.run(track.id,async()=>{
     const current=tracks.find(t=>t.id===track.id);if(!current)throw new Error('この曲はライブラリから削除されています。');
-    const updated={...current,hotcues:[...(current.hotcues||[null,null,null,null])]};
-    if(clear||current.hotcues?.[index]==null){updated.hotcues[index]=clear?null:pos;await library.putTrack(updated);tracks=tracks.map(t=>t.id===updated.id?updated:t);toast(clear?`HOT CUE ${index+1} を解除しました。`:`HOT CUE ${index+1} を ${time(pos)} に保存しました。`);}
-    else if(decks[deck].trackId===track.id){engine.clearLoop(deck);engine.seek(deck,current.hotcues[index]);await startDeckPlayback(()=>engine.play(deck));}
+    const updated={...current,hotcues:[...(current.hotcues||Array(8).fill(null))]};
+    if(clear||current.hotcues?.[index]==null){updated.hotcues[index]=clear?null:pos;if(current.positionMarks){updated.positionMarks=current.positionMarks.filter(mark=>mark.num!==index);if(!clear)updated.positionMarks.push({name:`HOT CUE ${index+1}`,type:0,start:pos,end:null,num:index,color:null});}await library.putTrack(updated);tracks=tracks.map(t=>t.id===updated.id?updated:t);toast(clear?`HOT CUE ${index+1} を解除しました。`:`HOT CUE ${index+1} を ${time(pos)} に保存しました。`);}
+    else if(decks[deck].trackId===track.id){engine.clearLoop(deck);engine.seek(deck,current.hotcues[index]);const mark=current.positionMarks?.find(mark=>mark.num===index);if(mark?.type===4)engine.setLoop(deck,mark.start,mark.end);await startDeckPlayback(()=>engine.play(deck));}
   });
   updateDecks();
 }
@@ -110,18 +114,18 @@ function toggleLoop(deck){
   const track=trackFor(deck);if(!track)return;
   const state=engine.getState(deck);if(state.loop){engine.clearLoop(deck);return;}
   if(!track.bpm){toast('ループにはBPMが必要です。曲の情報から設定できます。');return;}
-  const beat=60/track.bpm;const offset=track.beatOffset||0;
+  const tempo=tempoAt(track,state.position);const beat=60/tempo.bpm;const offset=tempo.start;
   let start=offset+Math.floor((state.position-offset)/beat)*beat;start=Math.max(0,start);
-  const end=Math.min(state.duration,start+decks[deck].loopBeats*beat);
+  const end=Math.min(state.duration,advanceBeats(track,start,decks[deck].loopBeats));
   if(end-start<.05){toast('曲の終端ではループを作成できません。');return;}
   engine.setLoop(deck,start,end);
 }
 function syncDeck(deck){
   const other=deck==='a'?'b':'a';const own=trackFor(deck),target=trackFor(other);
   if(!own?.bpm||!target?.bpm){toast('両方のデッキへBPMのある曲を読み込んでください。');return;}
-  const rate=target.bpm*engine.getState(other).rate/own.bpm;
+  const ownBpm=tempoAt(own,engine.getState(deck).position).bpm;const targetBpm=tempoAt(target,engine.getState(other).position).bpm;const rate=targetBpm*engine.getState(other).rate/ownBpm;
   if(rate<.5||rate>1.5){toast('BPM差がテンポの調整範囲（±50%）を超えています。');return;}
-  setControl(`${deck}.tempo`,rate-.5);toast(`BPMを ${(own.bpm*rate).toFixed(2)} に合わせました。`);
+  setControl(`${deck}.tempo`,rate-.5);toast(`BPMを ${(ownBpm*rate).toFixed(2)} に合わせました。`);
 }
 
 function bindPlatter(id){
@@ -146,14 +150,14 @@ function updateDecks(){
     const track=trackFor(id),state=engine.getState(id);
     $(`#${id}-title`).textContent=track?.title||'曲を読み込んでください';
     $(`#${id}-artist`).textContent=track?.artist||'YOUR NEXT TRACK';
-    $(`#${id}-bpm`).textContent=track?.bpm?(track.bpm*state.rate).toFixed(2):'—.—';
+    $(`#${id}-bpm`).textContent=track?.bpm?(tempoAt(track,state.position).bpm*state.rate).toFixed(2):'—.—';
     const play=$(`#${id}-play`);play.classList.toggle('is-playing',state.playing);play.textContent=state.playing?'Ⅱ':'▶';play.setAttribute('aria-pressed',String(state.playing));play.setAttribute('aria-label',`デッキ ${id.toUpperCase()} ${state.playing?'一時停止':'再生'}`);
     const loop=$(`#${id}-loop`);loop.classList.toggle('active',!!state.loop);loop.setAttribute('aria-pressed',String(!!state.loop));
     $(`#${id}-wave-empty`).hidden=!!track;
     $(`#${id}-scratch-state`).textContent=state.scratching?'SCRATCHING':state.playing?'PLAYING':'HOLD + DRAG';
     $(`#${id}-platter`).classList.toggle('scratching',!!state.scratching);
     const keylock=$(`#${id}-keylock`);const locked=!!state.keyLock;keylock.setAttribute('aria-pressed',String(locked));keylock.classList.toggle('active',locked);keylock.textContent=locked?'KEY LOCK':state.keyLockRequested&&!state.keyLockError?'KEY LOCK · 待機':'PITCH LINK';keylock.title=state.keyLockError||(locked?'テンポを変えても音程を保っています':'クリックして音程固定の設定を切り替えます');
-    for(let i=0;i<4;i++){const cue=track?.hotcues?.[i];const button=$(`#${id}-hotcue-${i}`);button.classList.toggle('set',cue!=null);button.innerHTML=`${i+1}<small>${cue!=null?time(cue):'HOT CUE'}</small>`;}
+    for(let i=0;i<8;i++){const cue=track?.hotcues?.[i];const button=$(`#${id}-hotcue-${i}`);button.classList.toggle('set',cue!=null);const mark=track?.positionMarks?.find(m=>m.num===i);button.title=mark?`${mark.name||`HOT CUE ${i+1}`}${mark.type===4?' · LOOP':''} · Shift＋クリックで解除`:'未設定なら現在位置を保存。設定後はジャンプ。Shift＋クリックで解除';button.innerHTML=`${i+1}<small>${cue!=null?time(cue):'HOT CUE'}</small>`;}
     drawWave(id,state);
   }
 }
@@ -165,11 +169,11 @@ function drawWave(id,state=engine.getState(id)){
   const ctx=canvas.getContext('2d');ctx.clearRect(0,0,w,h);const track=trackFor(id);const peaks=track?.peaks||[];const color=id==='a'?'#edaa73':'#7bc9bb';
   ctx.strokeStyle='#273135';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(0,h/2);ctx.lineTo(w,h/2);ctx.stroke();
   if(!track)return;
-  if(track.bpm){const secondsPerBeat=60/track.bpm;const total=state.duration||track.duration;ctx.strokeStyle='#273135';ctx.lineWidth=ratio;for(let t=track.beatOffset||0,index=0;t<total&&index<6000;t+=secondsPerBeat,index++){if(index%4!==0)continue;const x=t/total*w;ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke();}}
+  if(track.bpm){const total=state.duration||track.duration;ctx.strokeStyle='#273135';ctx.lineWidth=ratio;for(const t of barPositions(track,total)){const x=t/total*w;ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke();}}
   const progress=state.duration?state.position/state.duration:0;const stride=Math.max(1,Math.ceil(peaks.length/(rect.width/3)));
   for(let i=0;i<peaks.length;i+=stride){const x=i/peaks.length*w;const v=Math.max(...peaks.slice(i,i+stride));ctx.fillStyle=x<w*progress?color:(id==='a'?'#8d664c':'#466f69');const height=Math.max(2,(v||0)*h*.82);ctx.fillRect(x,(h-height)/2,Math.max(1,w/peaks.length*stride-1.5*ratio),height);}
   if(state.loop){ctx.fillStyle='#b6e9c020';ctx.fillRect(state.loop.start/state.duration*w,0,(state.loop.end-state.loop.start)/state.duration*w,h);}
-  for(let i=0;i<4;i++){const cue=track.hotcues?.[i];if(cue==null)continue;const x=cue/state.duration*w;ctx.fillStyle=color;ctx.fillRect(x,0,ratio*1.5,h);ctx.font=`${9*ratio}px monospace`;ctx.fillText(String(i+1),x+4*ratio,12*ratio);}
+  for(let i=0;i<8;i++){const cue=track.hotcues?.[i];if(cue==null)continue;const x=cue/state.duration*w;ctx.fillStyle=color;ctx.fillRect(x,0,ratio*1.5,h);ctx.font=`${9*ratio}px monospace`;ctx.fillText(String(i+1),x+4*ratio,12*ratio);}
   ctx.fillStyle='#f5f5ed';ctx.fillRect(clamp(progress,0,1)*w,0,Math.max(2,ratio),h);
 }
 
@@ -177,7 +181,7 @@ let lastFrame=0,lastUI=0,lastPreviewUI=0;
 function animate(now){
   const dt=lastFrame?Math.min((now-lastFrame)/1000,.1):0;lastFrame=now;
   if(view==='play'&&!document.hidden){for(const id of ['a','b']){const state=engine.getState(id);if(state.playing&&!state.scratching){decks[id].angle=(decks[id].angle+dt*200*state.rate)%360;$(`#${id}-platter .record`).style.transform=`rotate(${decks[id].angle}deg)`;}
-    if(now-lastUI>60){$(`#${id}-time`).textContent=time(state.position);$(`#${id}-remaining`).textContent=`− ${time(state.duration-state.position)}`;$(`#${id}-wave`).setAttribute('aria-valuenow',String(Math.round(state.duration?state.position/state.duration*100:0)));drawWave(id,state);}}
+    if(now-lastUI>60){const track=trackFor(id);$(`#${id}-bpm`).textContent=track?.bpm?(tempoAt(track,state.position).bpm*state.rate).toFixed(2):'—.—';$(`#${id}-time`).textContent=time(state.position);$(`#${id}-remaining`).textContent=`− ${time(state.duration-state.position)}`;$(`#${id}-wave`).setAttribute('aria-valuenow',String(Math.round(state.duration?state.position/state.duration*100:0)));drawWave(id,state);}}
     if(now-lastUI>60){lastUI=now;const level=engine.getLevels?.();$('#master-meter').style.height=`${Math.min(1,(level?.master||0)*2)*100}%`;$('#audio-status').textContent=engine.context?`${engine.context.sampleRate/1000} kHz / ${engine.context.state==='running'?'AUDIO ON':'待機中'}`:'音声待機中';}}
   if(view==='library'&&!document.hidden&&now-lastPreviewUI>120){lastPreviewUI=now;updatePreviewProgress();}
   requestAnimationFrame(animate);
@@ -188,11 +192,11 @@ function setView(next){if(next!=='library')preview.stop();view=next;$('#play-vie
 
 function renderLibrary(){
   $('#track-count').textContent=`${tracks.length} TRACK${tracks.length===1?'':'S'}`;
-  $('#playlist-tabs').innerHTML=`<button class="pill ${activePlaylist==='all'?'active':''}" data-playlist="all">すべての曲</button>`+playlists.map(p=>`<button class="pill ${activePlaylist===p.id?'active':''}" data-playlist="${escapeHTML(p.id)}">${escapeHTML(p.name)} <span>${p.trackIds.length}</span></button>`).join('');
+  $('#playlist-tabs').innerHTML=`<button class="pill ${activePlaylist==='all'?'active':''}" data-playlist="all">すべての曲</button>`+playlists.map(p=>`<button class="pill ${activePlaylist===p.id?'active':''}" data-playlist="${escapeHTML(p.id)}">${escapeHTML([...(p.folderPath||[]),p.name].join(" / "))} <span>${p.trackIds.length}</span></button>`).join('');
   const query=$('#search').value.trim().toLocaleLowerCase();let filtered=tracks.filter(t=>(`${t.title} ${t.artist}`).toLocaleLowerCase().includes(query));
   const playlist=playlists.find(p=>p.id===activePlaylist);if(playlist)filtered=filtered.filter(t=>playlist.trackIds.includes(t.id));
   const sort=$('#sort').value;filtered.sort(sort==='bpm'?(a,b)=>(a.bpm||999)-(b.bpm||999):sort==='title'?(a,b)=>a.title.localeCompare(b.title,'ja'):playlist?(a,b)=>playlist.trackIds.indexOf(a.id)-playlist.trackIds.indexOf(b.id):(a,b)=>a.addedAt-b.addedAt);
-  $('#track-list').innerHTML=filtered.map((t,index)=>`<tr><td class="track-number">${String(index+1).padStart(2,'0')}</td><td><div class="track-identity"><button class="preview-track-button" data-preview="${escapeHTML(t.id)}" aria-label="${escapeHTML(t.title)} を試聴" aria-pressed="false">▶</button><div class="track-copy"><div class="track-title" title="${escapeHTML(t.filename)}">${escapeHTML(t.title)}</div><div class="track-artist">${escapeHTML(t.artist||'アーティスト未設定')}</div></div></div></td><td class="wave-cell"><div class="mini-wave" aria-hidden="true">${Array.from({length:55},(_,i)=>`<i style="height:${Math.max(3,(t.peaks?.[Math.floor(i*(t.peaks?.length||0)/55)]||0)*100)}%"></i>`).join('')}</div></td><td class="track-bpm" title="${t.confidence<.35?'解析結果は推定です。曲の情報で修正できます。':'BPM'}">${t.bpm?t.bpm.toFixed(2):'—'}</td><td class="track-duration">${time(t.duration)}</td><td><div class="track-actions"><button class="load-button ${decks.a.trackId===t.id?'is-loaded':''}" data-load="a:${escapeHTML(t.id)}" aria-label="${escapeHTML(t.title)} をデッキ A へ">A</button><button class="load-button b ${decks.b.trackId===t.id?'is-loaded':''}" data-load="b:${escapeHTML(t.id)}" aria-label="${escapeHTML(t.title)} をデッキ B へ">B</button></div></td><td><button class="icon-button more-button" data-edit="${escapeHTML(t.id)}" aria-label="${escapeHTML(t.title)} の情報を編集">⋯</button></td></tr>`).join('');
+  $('#track-list').innerHTML=filtered.map((t,index)=>`<tr><td class="track-number">${String(index+1).padStart(2,'0')}</td><td><div class="track-identity"><button class="preview-track-button" data-preview="${escapeHTML(t.id)}" aria-label="${escapeHTML(t.title)} を試聴" aria-pressed="false" ${t.audioMissing?'disabled':''}>▶</button><div class="track-copy"><div class="track-title" title="${escapeHTML(t.filename)}">${escapeHTML(t.title)}</div><div class="track-artist">${escapeHTML(t.artist||'アーティスト未設定')}${t.rekordbox?' · XML':''}</div></div></div></td><td class="wave-cell"><div class="mini-wave" aria-hidden="true">${Array.from({length:55},(_,i)=>`<i style="height:${Math.max(3,(t.peaks?.[Math.floor(i*(t.peaks?.length||0)/55)]||0)*100)}%"></i>`).join('')}</div></td><td class="track-bpm" title="${t.rekordbox?'rekordbox XMLの平均BPM':t.confidence<.35?'解析結果は推定です。曲の情報で修正できます。':'BPM'}">${t.bpm?t.bpm.toFixed(2):'—'}</td><td class="track-duration">${time(t.duration)}</td><td><div class="track-actions">${t.audioMissing?`<button class="link-audio-button" data-link-audio="${escapeHTML(t.id)}">音源を選択</button>`:`<button class="load-button ${decks.a.trackId===t.id?'is-loaded':''}" data-load="a:${escapeHTML(t.id)}" aria-label="${escapeHTML(t.title)} をデッキ A へ">A</button><button class="load-button b ${decks.b.trackId===t.id?'is-loaded':''}" data-load="b:${escapeHTML(t.id)}" aria-label="${escapeHTML(t.title)} をデッキ B へ">B</button>`}</div></td><td><button class="icon-button more-button" data-edit="${escapeHTML(t.id)}" aria-label="${escapeHTML(t.title)} の情報を編集">⋯</button></td></tr>`).join('');
   $('#empty-library').hidden=tracks.length>0;
   if(!filtered.length&&tracks.length)$('#track-list').innerHTML='<tr><td colspan="7" style="text-align:center;color:#959d9e;padding:32px">条件に合う曲はありません。</td></tr>';
   updatePreview();
@@ -204,7 +208,7 @@ async function startDeckPlayback(operation){
   try{return await operation();}finally{pendingDeckPlayback--;}
 }
 async function togglePreview(trackId){
-  if(!tracks.some(t=>t.id===trackId))return;
+  const track=tracks.find(t=>t.id===trackId);if(!track)return;if(track.audioMissing){toast('先に「音源を選択」で元の音源を関連付けてください。');return;}
   if(pendingDeckPlayback||['a','b'].some(id=>{const state=engine.getState(id);return state.playing||state.scratching;})){
     toast('DJデッキが再生中です。試聴するにはデッキを停止してください。');return;
   }
@@ -234,6 +238,7 @@ function updatePreview(){
   const rate=state.rate??1,percent=(rate-1)*100;
   $('#preview-rate').value=String(percent);
   $('#preview-rate-value').textContent=`${percent>=0?'+':''}${percent.toFixed(1)}%`;
+  $('#preview-bpm-label').textContent=track?.tempos?.length>1?'再生BPM（平均）':'再生BPM';
   const bpm=$('#preview-bpm');bpm.disabled=!track?.bpm;
   if(track?.bpm){bpm.min=String(track.bpm*.5);bpm.max=String(track.bpm*1.5);}
   if(document.activeElement!==bpm)bpm.value=track?.bpm?(track.bpm*rate).toFixed(2):'';
@@ -271,26 +276,69 @@ function analyze(buffer){
   });
 }
 
-async function importFiles(files){
+function setImporting(value){
+  importing=value;
+  for(const id of ['import-top','import-empty','demo-button','import-xml','choose-xml']){
+    const el=$(`#${id}`);el.disabled=value;el.classList.toggle('importing',value);
+  }
+}
+
+async function importXml(file){
+  if(!file)return;
+  if(!library||importing){toast('読み込みの完了をお待ちください。');return;}
+  setImporting(true);
+  try{
+    if(file.size>32*1024*1024)throw new Error('XMLは32 MB以内で選んでください。');
+    const parsed=parseRekordboxXml(await file.text());
+    const result=await library.importTracks(parsed.tracks,parsed.playlists);
+    tracks=await library.getTracks();playlists=await library.getPlaylists();
+    setView('library');renderLibrary();updateDecks();
+    const summary=`${result.addedTracks}曲・${result.addedPlaylists}プレイリストを追加。既存${result.skippedTracks}曲・${result.skippedPlaylists}プレイリストは保持しました。`;
+    $('#xml-result').textContent=summary+(parsed.warnings.length?' '+parsed.warnings.join(' '):'')+' 音源は「音源を追加」または曲ごとの「音源を選択」で関連付けてください。';
+    $('#library-status').textContent=summary;
+    toast('XMLを取り込みました。BPM・CUE・ビートグリッドを保持しています。');
+    await storageInfo();
+  }catch(error){$('#xml-result').textContent=error.message;report(error);}
+  finally{setImporting(false);$('#xml-file').value='';}
+}
+
+async function importFiles(files,selectedId=null){
   files=Array.from(files);if(!files.length)return;
   if(!library){toast('ライブラリを起動しています。少しお待ちください。');return;}
-  if(importing){toast('音源を解析中です。少しお待ちください。');return;}
-  importing=true;const controls=[$('#import-top'),$('#import-empty'),$('#demo-button')];controls.forEach(el=>{el.disabled=true;el.classList.add('importing');});
-  let added=0,skipped=0;const errors=[];
+  if(importing){toast('ファイルを読み込み中です。少しお待ちください。');return;}
+  setImporting(true);
+  let added=0,linked=0,skipped=0;const errors=[];
   try {for(let i=0;i<files.length;i++){
     const file=files[i];const fingerprint=`${file.name}|${file.size}|${file.lastModified||0}`;
-    if(tracks.some(t=>t.fingerprint===fingerprint)){skipped++;continue;}
-    $('#library-status').textContent=`解析中 ${i+1} / ${files.length} — ${file.name}`;
-    try {if(!isAudioFile(file))throw new Error('音源ファイルを選んでください（MP3・WAV・AACなど）。');if(file.size>80*1024*1024)throw new Error('1曲80 MB以内の音源を選んでください。');let buffer=await engine.decode(await file.arrayBuffer());const result=await analyze(buffer);buffer=null;
-      const stem=file.name.replace(/\.[^.]+$/,'');const split=stem.split(' - ');const title=split.length>1?split.slice(1).join(' - '):stem;const artist=split.length>1?split[0]:'';
-      const metadata={id:uid(),title,artist,bpm:result.bpm,confidence:result.confidence,duration:result.duration,beatOffset:result.beatOffset||0,peaks:result.peaks,cue:0,hotcues:[null,null,null,null],filename:file.name,fingerprint,addedAt:Date.now()};
-      await library.putTrack(metadata,file);tracks.push(metadata);added++;renderLibrary();
+    const hasMissing=tracks.some(t=>t.audioMissing&&(selectedId?t.id===selectedId:t.filename.normalize('NFC')===file.name.normalize('NFC')));
+    if(!hasMissing&&tracks.some(t=>t.fingerprint===fingerprint)){skipped++;continue;}
+    $('#library-status').textContent=`読み込み中 ${i+1} / ${files.length} — ${file.name}`;
+    try {
+      if(!isAudioFile(file))throw new Error('音源ファイルを選んでください（MP3・WAV・AACなど）。');
+      if(file.size>80*1024*1024)throw new Error('1曲80 MB以内の音源を選んでください。');
+      let buffer=await engine.decode(await file.arrayBuffer());
+      const imported=findImportedAudio(tracks,file,buffer.duration,selectedId);
+      if(imported){
+        const peaks=audioPeaks(buffer),duration=buffer.duration;buffer=null;
+        await trackQueue.run(imported.id,async()=>{
+          const current=tracks.find(t=>t.id===imported.id);if(!current)throw new Error('この曲は削除されています。');
+          const metadata=relinkMetadata(current,file,duration,peaks);
+          await library.putTrack(metadata,file);tracks=tracks.map(t=>t.id===metadata.id?metadata:t);
+        });linked++;
+      }else{
+        const result=await analyze(buffer);buffer=null;
+        const stem=file.name.replace(/\.[^.]+$/,'');const split=stem.split(' - ');const title=split.length>1?split.slice(1).join(' - '):stem;const artist=split.length>1?split[0]:'';
+        const metadata={id:uid(),title,artist,bpm:result.bpm,confidence:result.confidence,duration:result.duration,beatOffset:result.beatOffset||0,peaks:result.peaks,cue:0,hotcues:Array(8).fill(null),filename:file.name,fingerprint,addedAt:Date.now()};
+        await library.putTrack(metadata,file);tracks.push(metadata);added++;
+      }
+      renderLibrary();
     } catch(error){errors.push(`${file.name}: ${error.message}`);}
   }
-  $('#library-status').textContent=errors.length?`${added}曲を追加${skipped?`、重複${skipped}曲をスキップ`:''}。${errors.length}ファイルを読み込めませんでした。${errors[0]}`:`${added}曲を追加${skipped?`、重複${skipped}曲をスキップ`:''}。音源と解析結果は${library.persistent?'この端末に保存しました':'このセッションだけで保持しています'}。`;
-  if(errors.length)toast(errors[0]);else if(added)toast(`${added}曲をライブラリに追加しました。`);else if(skipped)toast('追加済みの音源でした。');
+  const summary=`${added}曲を追加、${linked}曲の音源を関連付け${skipped?`、重複${skipped}曲をスキップ`:''}。`;
+  $('#library-status').textContent=summary+(errors.length?`${errors.length}ファイルを読み込めませんでした。${errors[0]}`:linked?'XMLのBPM・CUE・ビートグリッドは再解析せず保持しました。':`音源と解析結果は${library.persistent?'この端末に保存しました':'このセッションだけで保持しています'}。`);
+  if(errors.length)toast(errors[0]);else toast(summary);
   await storageInfo();
-  } finally {importing=false;controls.forEach(el=>{el.disabled=false;el.classList.remove('importing');});$('#audio-files').value='';}
+  } finally {setImporting(false);$('#audio-files').value='';$('#link-audio-file').value='';}
 }
 
 function demoWav(bpm,index){
@@ -304,8 +352,8 @@ function demoWav(bpm,index){
 }
 
 function openTrack(id){
-  const track=tracks.find(t=>t.id===id);if(!track)return;editingTrack=id;const form=$('#track-form');form.elements.title.value=track.title;form.elements.artist.value=track.artist;form.elements.bpm.value=track.bpm||'';
-  form.elements.playlist.innerHTML='<option value="">追加しない</option>'+playlists.map(p=>`<option value="${escapeHTML(p.id)}">${escapeHTML(p.name)}</option>`).join('');$('#track-dialog').showModal();
+  const track=tracks.find(t=>t.id===id);if(!track)return;editingTrack=id;const form=$('#track-form');form.elements.title.value=track.title;form.elements.artist.value=track.artist;form.elements.bpm.value=track.bpm||'';$('#track-grid-note').hidden=!track.tempos?.length;const details=$('#track-import-details');details.hidden=!track.rekordbox;details.innerHTML=track.rekordbox?`<strong>rekordboxから取り込み</strong><br>${track.tempos?.length||0}個のテンポ区間 · ${(track.positionMarks||[]).filter(m=>m.num===-1).length}個のメモリーCUE／ループ<ul>${(track.positionMarks||[]).map(m=>`<li>${m.num<0?'MEMORY':`HOT CUE ${m.num+1}`} · ${time(m.start)}${m.type===4?`〜${time(m.end)} LOOP`:''} ${escapeHTML(m.name)}</li>`).join('')}</ul>`:'';
+  form.elements.playlist.innerHTML='<option value="">追加しない</option>'+playlists.map(p=>`<option value="${escapeHTML(p.id)}">${escapeHTML([...(p.folderPath||[]),p.name].join(" / "))}</option>`).join('');$('#track-dialog').showModal();
 }
 function renderMIDIStatus(status=mapping.status){$('#midi-status').textContent=status.message+(status.inputs?.length?` 接続：${status.inputs.map(p=>p.name||p.id).join('、')}`:'');$('#connect-midi').textContent=status.state==='connected'?'MIDIを再確認':'MIDIを接続';}
 function bindingLabel(item){const b=item.binding;if(item.source==='keyboard')return `${b.shift?'Shift + ':''}${b.alt?'Alt + ':''}${b.code.replace(/^Key/,'').replace(/^Digit/,'')}`;return `${b.type==='pitchbend'?'PITCH':`${b.type.toUpperCase()} ${b.number}`} / CH ${b.channel+1}${item.mode==='relative-twos'?' / REL 2C':item.mode==='relative-offset'?' / REL 64':''}`;}
@@ -320,12 +368,13 @@ async function storageInfo(){try{const estimate=await navigator.storage?.estimat
 function events(){
   installFileDrop({target:document,host:window,onActive:active=>{$('#file-drop-overlay').hidden=!active;},onFiles:files=>{
     if(!files.length){toast('フォルダではなく、音源ファイルをドロップしてください。');return;}
-    setView('library');importFiles(files).catch(report);
+    setView('library');const xml=files.filter(f=>/\.xml$/i.test(f.name));if(xml.length){if(xml.length!==1||files.length!==1){toast('XMLは1ファイルずつ取り込み、その後に音源を追加してください。');return;}$('#xml-dialog').showModal();importXml(xml[0]).catch(report);}else importFiles(files).catch(report);
   }});
   document.addEventListener('click',event=>{const target=event.target.closest('button');if(!target)return;
     if(target.dataset.action)dispatch(target.dataset.action).catch(report);
     if(target.dataset.view)setView(target.dataset.view);
-    if(target.dataset.load){const [deck,id]=target.dataset.load.split(':');loadDeck(deck,id);}
+    if(target.dataset.load){const value=target.dataset.load;loadDeck(value.slice(0,1),value.slice(2));}
+    if(target.dataset.linkAudio){relinkTrack=target.dataset.linkAudio;$('#link-audio-file').click();}
     if(target.dataset.edit)openTrack(target.dataset.edit);
     if(target.dataset.preview)togglePreview(target.dataset.preview).catch(report);
     if(target.dataset.hotcue){const [deck,index]=target.dataset.hotcue.split(':');hotCue(deck,Number(index),event.shiftKey).catch(report);}
@@ -358,6 +407,10 @@ function events(){
 
   for(const id of ['import-top','import-empty'])$(`#${id}`).onclick=()=>$('#audio-files').click();
   $('#audio-files').addEventListener('change',e=>importFiles([...e.target.files]).catch(report));
+  $('#link-audio-file').addEventListener('change',e=>{const id=relinkTrack;relinkTrack=null;importFiles([...e.target.files],id).catch(report);});
+  $('#import-xml').onclick=()=>$('#xml-dialog').showModal();
+  $('#choose-xml').onclick=()=>$('#xml-file').click();
+  $('#xml-file').addEventListener('change',e=>importXml(e.target.files[0]).catch(report));
   $('#demo-button').onclick=()=>importFiles([demoWav(124,0),demoWav(128,1)]).catch(report);
   $('#show-help').onclick=()=>$('#help-dialog').showModal();$('#usb-info').onclick=()=>$('#usb-dialog').showModal();
   $('#search').addEventListener('input',renderLibrary);$('#sort').addEventListener('change',renderLibrary);$('#sort-bpm').onclick=()=>{$('#sort').value=$('#sort').value==='bpm'?'added':'bpm';renderLibrary();};

@@ -26,7 +26,7 @@ test('snapshot round trip retains cue/playlist order without trusting extra fiel
   original.tracks[0].extra = 'discard';
   const result = validateLibrarySnapshot(JSON.stringify(original));
   assert.equal(result.tracks[0].bpm, 128);
-  assert.deepEqual(result.tracks[0].hotcues, [1, 32, null, 128]);
+  assert.deepEqual(result.tracks[0].hotcues, [1, 32, null, 128, null, null, null, null]);
   assert.deepEqual(result.playlists[0].trackIds, ['track-1']);
   assert.equal(result.exportedAt, '2026-11-06T12:00:00.000Z');
   assert.equal(result.arbitraryPath, undefined);
@@ -168,4 +168,50 @@ test('an opened persistent store reports a later quota error instead of switchin
     if (descriptor) Object.defineProperty(globalThis, 'indexedDB', descriptor);
     else delete globalThis.indexedDB;
   }
+});
+
+
+test('rekordbox metadata survives snapshots including 8 hot cues, tempo segments, loops and hierarchy', () => {
+  const source = track({hotcues: [1, 32, null, 128, null, null, null, 150], audioMissing: true,
+    tempos: [{start: 0.12, bpm: 128, meter: '4/4', beat: 1}, {start: 60, bpm: 130, meter: '3/4', beat: 2}],
+    positionMarks: [{name: 'Loop & color', type: 4, start: 150, end: 158, num: 7, color: [1, 2, 255]}],
+    rekordbox: {trackId: '12', location: 'file://localhost/music/Night%20Walk.wav', size: 123456}});
+  const result = validateLibrarySnapshot(snapshot({tracks: [source], playlists: [{id: 'p', name: 'Set', folderPath: ['Venue', 'Opening'], trackIds: [source.id]}]}));
+  assert.deepEqual(result.tracks[0].tempos, source.tempos);
+  assert.deepEqual(result.tracks[0].positionMarks, source.positionMarks);
+  assert.deepEqual(result.tracks[0].rekordbox, source.rekordbox);
+  assert.equal(result.tracks[0].audioMissing, true);
+  assert.deepEqual(result.playlists[0].folderPath, ['Venue', 'Opening']);
+  for (const patch of [{tempos: [{start: 1, bpm: 128, meter: '4/4', beat: 5}]},
+    {positionMarks: [{name: '', type: 4, start: 1, end: 0, num: 7}]},
+    {rekordbox: {trackId: '12', location: 'https://example.com/song.wav'}}, {audioMissing: 'true'}]) {
+    assert.throws(() => validateLibrarySnapshot(snapshot({tracks: [track(patch)]})));
+  }
+});
+
+test('XML import is additive and atomic, preserves existing edits/audio and skips repeated source IDs', async () => {
+  await withoutIndexedDB(async () => {
+    const store = await openLibrary();
+    const source = track({rekordbox: {trackId: '12', location: 'file://localhost/music/song.wav'}, audioMissing: false});
+    await store.putTrack(source, new Blob(['original music']));
+    const incoming = track({id: 'track-2', audioMissing: true, rekordbox: {trackId: '13', location: 'file:///music/next.wav'}});
+    const list = {id: 'p', name: 'Imported', trackIds: ['track-1', 'track-2'], folderPath: ['Party']};
+    const result = await store.importTracks([source, incoming], [list]);
+    assert.deepEqual(result, {addedTracks: 1, addedPlaylists: 1, skippedTracks: 1, skippedPlaylists: 0});
+    await store.putTrack({...source, bpm: 64});
+    const repeated = await store.importTracks([source, incoming], [list]);
+    assert.equal(repeated.addedTracks, 0);
+    assert.equal((await store.getTracks())[0].bpm, 64);
+    assert.equal((await store.getTracks())[0].audioMissing, false);
+    assert.equal(await (await store.getAudio('track-1')).text(), 'original music');
+    assert.equal(await store.getAudio('track-2'), null);
+    const before = await store.getTracks(), beforeLists = await store.getPlaylists();
+    await assert.rejects(store.importTracks([track({id: 'track-3'})], [{id: 'bad', name: 'Dangling', trackIds: ['missing']}]));
+    assert.deepEqual(await store.getTracks(), before);
+    assert.deepEqual(await store.getPlaylists(), beforeLists);
+    await assert.rejects(store.importTracks([track({id: 'track-1'})], []), /衝突/);
+    assert.deepEqual(await store.getTracks(), before);
+    const addList = await store.importTracks([], [{id: 'new-list', name: 'Existing reference', trackIds: ['track-1']}]);
+    assert.equal(addList.addedPlaylists, 1);
+  });
 });
