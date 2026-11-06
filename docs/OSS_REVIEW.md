@@ -47,15 +47,52 @@ Essentiaの一次ライセンス説明: https://essentia.upf.edu/licensing_infor
 | [Craft Anything](https://github.com/storytold/craft-anything) | 汎用の静的／動的解析とAIによる再実装補助。初期alpha | USB専用writerではないため実行時依存にしない。必要な調査に限定して利用を検討 |
 | [BLA](https://github.com/qybaihe/bla) | AIによる解析を妨げる保護ツール | 曲解析／USB writerの実装には使わない |
 
-## ブラウザ／iPadへの移植について
+## 採用: OneLibraryのブラウザ用SQLCipher／SQLite reader
+
+確認日: 2026-11-07。対象はrekordbox 6/7の `master.db` とUSBの `exportLibrary.db` の**読み取り**です。
+
+- ソース: [v1vendi/onelibrary](https://github.com/v1vendi/onelibrary)。固定commit: `02c6f80c802a635c394e733058502ecf28cf9fc9`。
+- ライセンス: MIT、Copyright (c) 2026 v1vendi。原文を `dist/vendor/onelibrary/LICENSE` に保存。
+- 採用ファイル: `viewer/src/sqlcipher.js` と `viewer/src/sqlite.js`。対応する上流SHA-256、変更点、試験用fixtureの出自を `dist/vendor/onelibrary/NOTICE.md` に記載。
+- ローカル変更: 読み取り専用のSQLCipher API、ページごとのHMAC検証、SQLiteの範囲検査・循環検出・読み取り上限を追加。Web CryptoとWeb Workerで処理し、外部サーバーへDBを送信しません。
+- DBの相互運用定数は上流の `python/src/onelibrary/keys.py` を参照。ユーザーの認証情報を取得する仕組みや、実行ファイルからのキー探索は含みません。
+- 上流の `viewer/test/fixtures/sample.db` は架空の曲情報とテスト用passphraseを持つ合成fixtureです。実ユーザーの音源やDBは同梱しません。
+
+`dist/rekordbox-sqlite.js` は読み取り結果をDECKFLOWの曲・階層プレイリストへ変換します。`master.db` のCUE種別、削除フラグ、スキーマは [pyrekordboxの固定モデル](https://github.com/dylanljones/pyrekordbox/blob/02a208837434e4c05c0a222e8fe6583e6ac0547f/pyrekordbox/masterdb/models.py)、[CueGen](https://github.com/mganss/CueGen/blob/master/CueGen/Generator.cs)、[rbxportの固定ソース](https://github.com/chrisle/rbxport/blob/b739d369665b492534dc2eae0733322c040a26d5/crates/rbl-db/src/write.rs) の構造情報と照合しました。これら3件の実装コードはコピーしていません。
+
+HOT CUE A〜HとメモリーCUE／LOOP・名前を取り込みます。DB固有のCUE色、HOT CUE I以降、終了位置がないループ、スマートプレイリストなどは未対応として警告します。OneLibraryのCUE／LOOPは対応ANLZから引き継ぎます。非空の同名 `-wal` が選択範囲にあるDBは読み込まず、rekordboxで確定してからの再選択またはXMLを案内します。
+
+## ブラウザ用Device Library／ANLZ reader
+
+`dist/rekordbox-device.js` は、固定版bakenのPDBページ／行／文字列レイアウトと [Deep Symmetryの形式資料](https://djl-analysis.deepsymmetry.org/rekordbox-export-analysis/) をもとに実装した読み取り専用モジュールです。baken由来のMIT通知をファイル内に保持します。
+
+`export.pdb` の曲・アーティスト・プレイリストと、対応するDAT／EXTの波形、ビートグリッド、CUE／LOOPをブラウザで読みます。USBの音源パスと解析ファイルの参照を照合し、表示用ピークを生成します。端末へのライブラリ取り込みは音源全体をデコードせず、元の符号化データをIndexedDBへコピーします。USBを接続しただけで自動読み込みしたり、元のUSBを書き換えたりはしません。
+
+DBは128 MiB、Webで読むANLZは32 MiB、ライブラリは10,000曲・1,000プレイリストまでです。形式検証・合成fixture・生成USBの読み戻しは、全rekordboxバージョン、物理iPad、CDJ全機種での受け入れ確認を代替しません。今回のテストとブラウザ確認は [VERIFICATION.md](VERIFICATION.md) に記録します。
+
+## 操作画面の参考資料
+
+2026-11-07に以下の公開ページを確認し、既存の暗色・オレンジ／ティールの配色に合わせてHTML／CSSで実装しました。各サイトの画像・ロゴ・実装コードはコピーせず、React／Motion等の依存も追加していません。
+
+| 参考 | 採用した考え方 |
+| --- | --- |
+| [21stのSidebar例](https://21st.dev/@shadcn/components/sidebar) | 読み込み元とプレイリストをグループ分けした常設サイドバー、選択状態 |
+| [React Bits Dock](https://reactbits.dev/components/dock) | よく使う操作をコンパクトにまとめる配置 |
+| [Magic UI Dock](https://magicui.design/docs/components/dock) | 画面下部の試聴コントロール。拡大・バウンド等の演出は使わない |
+| [Uiverse Input](https://uiverse.io/ErzenXz/horrible-rattlesnake-14) | 検索欄の境界、フォーカス状態の見やすさ |
+| [Mobbin](https://mobbin.com/) | 公開の紹介・カタログを確認。ログイン内の画面は未閲覧、素材の流用なし |
+
+読み込み元を左、検索可能な曲一覧を中央、試聴を下部に置く構成です。rekordboxの基本的な作業順序を参考にしつつ、タッチ操作の44pxターゲット、狭い画面での折り返し、75曲単位のページ表示を用意しています。
+
+## USB書き出しのブラウザ／iPad対応について
 
 `baken-export` は現在、`std::fs`による音源・ディレクトリ操作、rayon、ネイティブSQLite（OneLibrary用）、OSごとのボリューム処理を含みます。公開crateをそのままWebAssemblyへ入れる構成は確認できていません。PDBの純粋なエンコード部分を切り出す将来の移植は検討できますが、今回それを完了済みと扱っていません。
 
-今回の完成範囲は、ブラウザが書き出したライブラリJSONをmacOS helperへ渡し、CDJ-3000向けファイル一式を新規ディレクトリに生成するところです。iPad単体でUSBを完成させる処理や、iPadネイティブ版へのwriter移植は別途必要です。
+USBの読み取りは前述のブラウザreaderで行います。USB書き出しは、ブラウザが保存したライブラリJSONをmacOS helperへ渡し、CDJ-3000向けファイル一式を新規ディレクトリに生成する方式です。iPad単体のUSB生成は未実装です。Web／PWAを開発対象としており、ネイティブ版へのwriter移植は含みません。
 
 ## 自動生成の解析データの限界
 
-BPM、先頭拍、CUE、HOT CUEはDECKFLOWの値からrekordbox XMLを作り、bakenに渡します。baken自身がBPMを推定するわけではありません。可変テンポのグリッド、楽曲構成のPhrase情報、rekordboxと同等の色波形を保証しません。`--generate-analysis --anlz-dir <空の一時フォルダ> --no-settings` を指定するため、rekordboxの個人ライブラリや解析キャッシュ、My Settingsを読みません。プレイヤーの設定はそのまま使います。
+BPM、先頭拍、CUE、HOT CUEはDECKFLOWの値からrekordbox XMLを作り、bakenに渡します。baken自身がBPMを推定するわけではありません。取り込んだ可変TEMPOはグリッドへ引き継ぎますが、曲構成のPhrase情報やrekordboxと同等の色波形を新しく生成するものではありません。既存解析を指定しない場合は `--generate-analysis --anlz-dir <空の一時フォルダ> --no-settings` を使います。`--analysis-dir` を明示した場合だけ対応する既存解析を読み取り、一時コピーから引き継ぎます。rekordboxのライブラリやMy Settingsを自動探索しません。プレイヤーの設定はそのまま使います。
 
 ## 検証
 

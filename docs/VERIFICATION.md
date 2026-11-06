@@ -107,3 +107,15 @@ JSONのnative保存・共有はソース確認までです。実機での保存�
 - ブラウザで空状態のXMLダイアログ、デモ追加による2曲の保存と一覧への切替、USB案内のメニュー起動、検索結果なし、試聴開始・停止を確認。390px・1024px・1280pxで表示を確認し、横方向のはみ出しがないことを測定。
 - 新旧の同じモバイル幅のスクリーンショットを比較。新規音源追加ボタンが画面上部へ近づき、空の表・二重見出しが消えたことを確認。音声を停止し、viewport変更を解除。
 - 今後の開発対象はWeb／PWA。以前のnative/iosは検証用として保持し、今回のWeb画面修正では同期・native buildを実行していません。
+
+## 2026-11-07 — 既存ライブラリ・USB取り込み／キャッシュ／ライブラリUI
+
+- `DECKFLOW_BAKEN_BIN="$PWD/.local/baken/bin/baken" npm test`: **134 passed, 0 failed, 0 skipped**。固定bakenの実行を含む。master.db／OneLibraryの独立したSQLCipher合成fixture、改ざんHMAC、SQLite overflow／循環／文字列、削除済みDB行、master CUE A〜H／メモリーループ、PDB／ANLZ、同名音源の逆引き衝突、中止・再開、DAT後のEXT追加、編集保護、容量不足、共有PCMの再利用／上限／キャンセルを確認。
+- `npm run build`: **31 runtime assets, 410 KiB**、offline cache `295243c4786709c0`。`git diff --check` passed。
+- in-app Chromiumの別ローカルoriginで、合成の `master.db`、`exportLibrary.db`、従来 `export.pdb` をフォルダ選択から取り込み。音源コピー、一覧表示、試聴、DJデッキへの読み込みを確認。ユーザーの実ライブラリは参照していない。
+- 従来USB fixtureから2テンポ区間、メモリーループ、HOT H、既存波形を引き継いだ。master fixtureではmemory 0.5秒、active memory loop 2〜4秒、Hot A 1秒、Hot H loop 6〜7.5秒を曲情報で確認。解析ファイルを選ばない場合の警告も確認。
+- 同じOneLibraryを再取り込みして「0曲を追加・音源コピー0曲・1曲はキャッシュ・DB解析結果もキャッシュ」を確認。ページ再読み込み後、フォルダ再選択なしで保存済みUSB音源を試聴できた。
+- 80曲の合成XMLをWorker経由で取り込み、最初75行／次5行、2ページ目から検索すると1行へ絞り込めることを確認。実運用規模の速度ベンチマークではない。
+- 左ナビ／中央一覧／下部試聴バー、試聴BPM120→126（+5%）、テンポ・EQパネルを確認。1280／1024／390 CSS pxでdocumentの横はみ出しなし。390pxで試聴・A/B・詳細ボタンは44×44px。ブラウザのviewport／device metricsは終了時に解除。console error/warnは確認範囲で0件。
+- 画面記録: `docs/library-preview.png`（合成データ）。UI部品の参照元は `docs/OSS_REVIEW.md`。React等のUI依存追加なし。
+- 物理iPadでのUSBファイル選択・Safari・音声遅延・長時間安定性、実rekordboxの全DBバージョン、CDJ-3000の実機検証は未実施。USB挿入の自動検知はせず、ユーザーがフォルダを選ぶ。保存済み項目を上書きする同期ではなく追加取り込みで、元DB／USBは変更しない。

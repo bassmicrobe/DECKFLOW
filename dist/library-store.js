@@ -184,8 +184,12 @@ class MemoryLibrary {
     this.tracks = new Map();
     this.audio = new Map();
     this.playlists = [];
+    this.sources = new Map();
   }
   async getTracks() { return [...this.tracks.values()].map(clone); }
+  async getSources() { return [...this.sources.values()].map(clone); }
+  async putSource(source) { identifier(source.id, 'ライブラリの参照ID'); if(!this.sources.has(source.id)&&this.sources.size>=20)throw new Error('保存できるライブラリの参照は20件までです。'); this.sources.set(source.id, clone(source)); }
+  async removeSource(id) { this.sources.delete(id); }
   async putTrack(metadata, blob) {
     const track = normalizeTrack(metadata);
     checkBlob(blob);
@@ -248,6 +252,34 @@ class IndexedLibrary {
       transaction.onerror = () => { /* The abort event is the transaction's final result. */ };
       try { operation(transaction, setResult, fail); }
       catch (error) { fail(error); }
+    });
+  }
+
+  async getSources() {
+    return this._transaction(['config'], 'readonly', (transaction, done) => {
+      const request = transaction.objectStore('config').get('sources');
+      request.onsuccess = () => done(request.result ?? []);
+    });
+  }
+  async putSource(source) {
+    identifier(source.id, 'ライブラリの参照ID');
+    return this._transaction(['config'], 'readwrite', (transaction, done, fail) => {
+      const config = transaction.objectStore('config'), request = config.get('sources');
+      request.onsuccess = () => {
+        try {
+          const sources = request.result ?? [], index = sources.findIndex(item => item.id === source.id);
+          if (index < 0 && sources.length >= 20) throw new Error('保存できるライブラリの参照は20件までです。不要な参照を一覧から外してください。');
+          if (index < 0) sources.push(source); else sources[index] = source;
+          config.put(sources, 'sources');
+        } catch (error) { fail(error); }
+      };
+    });
+  }
+  async removeSource(id) {
+    identifier(id, 'ライブラリの参照ID');
+    return this._transaction(['config'], 'readwrite', transaction => {
+      const config = transaction.objectStore('config'), request = config.get('sources');
+      request.onsuccess = () => config.put((request.result ?? []).filter(source => source.id !== id), 'sources');
     });
   }
 

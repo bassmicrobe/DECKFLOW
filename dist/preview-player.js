@@ -1,11 +1,12 @@
 /** A single library audition, independent of the DJ decks and mixer. */
 export class PreviewPlayer {
-  constructor({getAudio, onChange = () => {}, createContext = () => {
+  constructor({getAudio, getBuffer = null, onChange = () => {}, createContext = () => {
     const AudioContextClass = globalThis.AudioContext || globalThis.webkitAudioContext;
     if (!AudioContextClass) throw new Error('このブラウザーは音声処理に対応していません。');
     return new AudioContextClass({latencyHint:'interactive'});
   }} = {}) {
     this.getAudio = getAudio;
+    this.getBuffer = getBuffer;
     this.onChange = onChange;
     this.createContext = createContext;
     this.context = null;
@@ -127,15 +128,25 @@ export class PreviewPlayer {
       if (!current()) return;
       if (context.state !== 'running') throw new Error('音声を開始できませんでした。もう一度試聴ボタンを押してください。');
       if (!this.buffer) {
-        const blob = await this.getAudio(trackId);
+        const decode = async () => {
+          const blob = await this.getAudio(trackId);
+          // A shared job may also serve a deck or a newer audition. Cancelling
+          // this transport must not cancel their decode. The default path still
+          // avoids decoding after its sole consumer has stopped.
+          if (!this.getBuffer && !current()) return null;
+          if (!blob) throw new Error('元の音源を読み込めません。曲を追加し直してください。');
+          if (blob.size > 80 * 1024 * 1024) throw new Error('1曲80 MB以内の音源を選んでください。');
+          const bytes = await blob.arrayBuffer();
+          if (!this.getBuffer && !current()) return null;
+          const buffer = await context.decodeAudioData(bytes);
+          if (!Number.isFinite(buffer?.duration) || buffer.duration <= 0 || buffer.duration > 20 * 60) {
+            throw new Error('20分以内の再生できる音源を選んでください。');
+          }
+          return buffer;
+        };
+        const buffer = this.getBuffer ? await this.getBuffer(trackId, decode) : await decode();
         if (!current()) return;
-        if (!blob) throw new Error('元の音源を読み込めません。曲を追加し直してください。');
-        if (blob.size > 80 * 1024 * 1024) throw new Error('1曲80 MB以内の音源を選んでください。');
-        const bytes = await blob.arrayBuffer();
-        if (!current()) return;
-        const buffer = await context.decodeAudioData(bytes);
-        if (!current()) return;
-        if (!Number.isFinite(buffer.duration) || buffer.duration <= 0 || buffer.duration > 20 * 60) {
+        if (!Number.isFinite(buffer?.duration) || buffer.duration <= 0 || buffer.duration > 20 * 60) {
           throw new Error('20分以内の再生できる音源を選んでください。');
         }
         this.buffer = buffer;

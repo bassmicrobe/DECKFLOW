@@ -5,6 +5,9 @@ import {validateUsbLibrary} from './usb-export.js';
 import {createTrackQueue} from './track-updates.js';
 import {installFileDrop,isAudioFile} from './file-drop.js';
 import {PreviewPlayer} from './preview-player.js';
+import {AudioBufferCache} from './audio-buffer-cache.js';
+import {indexFileList,indexDirectory,createSourceIndex,databaseCandidates,createLibraryReader} from './library-source.js';
+import {cacheSourceLibrary} from './source-import.js';
 import {parseRekordboxXml} from './rekordbox-import.js';
 import {findImportedAudio,audioPeaks,tempoAt,barPositions,advanceBeats,relinkMetadata} from './import-audio.js';
 
@@ -31,6 +34,10 @@ let library;
 let tracks = [];
 let playlists = [];
 let activePlaylist = 'all';
+let sources=[],activeSource=null,libraryPage=0;
+const PAGE_SIZE=75;
+let selectedSourceIndex=null,selectedCandidates=[],refreshSourceId=null,sourceController=null,sourceReader=null;
+const bufferCache=new AudioBufferCache();
 let mappingGroup = 'all';
 let importing = false;
 let editingTrack = null;
@@ -40,7 +47,7 @@ const trackQueue=createTrackQueue();
 const decks = {a:{trackId:null,pendingTrackId:null,loopBeats:4,loadNonce:0,angle:0},b:{trackId:null,pendingTrackId:null,loopBeats:4,loadNonce:0,angle:0}};
 const engine = new AudioEngine({onEnded:()=>updateDecks(),onStatus:status=>{if(status.message)toast(status.message);updateDecks();}});
 let pendingDeckPlayback=0;
-const preview = new PreviewPlayer({getAudio:id=>library?.getAudio(id),onChange:()=>updatePreview()});
+const preview = new PreviewPlayer({getAudio:id=>library?.getAudio(id),getBuffer:(id,decode)=>bufferCache.get(id,decode),onChange:()=>updatePreview()});
 const mapping = new MappingManager({actions,onAction:(id,value,phase)=>{if(phase !== 'release') dispatch(id,value).catch(report);},onChange:()=>renderMappings(),onStatus:status=>{renderMIDIStatus(status);}});
 
 function renderDecks() {
@@ -92,8 +99,7 @@ async function loadDeck(deck,trackId) {
   const nonce=++decks[deck].loadNonce;
   decks[deck].pendingTrackId=trackId;
   $(`#${deck}-title`).textContent='読み込み中…';
-  try {const blob=await library.getAudio(trackId);if(!blob)throw new Error('元の音源を読み込めません。曲を追加し直してください。');
-    const buffer=await engine.decode(await blob.arrayBuffer());if(nonce!==decks[deck].loadNonce||!tracks.some(t=>t.id===trackId))return;
+  try {const buffer=await bufferCache.get(trackId,async()=>{const blob=await library.getAudio(trackId);if(!blob)throw new Error('元の音源を読み込めません。曲を追加し直してください。');return engine.decode(await blob.arrayBuffer());});if(nonce!==decks[deck].loadNonce||!tracks.some(t=>t.id===trackId))return;
     engine.load(deck,buffer);engine.setCue(deck,track.cue||0);decks[deck].trackId=trackId;decks[deck].angle=0;
     setControl(`${deck}.tempo`,.5);updateDecks();renderLibrary();toast(`デッキ ${deck.toUpperCase()} に ${track.title} を読み込みました。`);
   } catch(error){if(nonce===decks[deck].loadNonce)updateDecks();report(error);}finally{if(nonce===decks[deck].loadNonce)decks[deck].pendingTrackId=null;}
@@ -191,13 +197,18 @@ function setView(next){if(next!=='library')preview.stop();view=next;$('#play-vie
   $$('.workspace-tabs .tab').forEach(button=>{const active=button.dataset.view===next;button.classList.toggle('active',active);if(active)button.setAttribute('aria-current','page');else button.removeAttribute('aria-current');});if(next==='play')updateDecks();if(next==='mapping')renderMappings();updatePreview();}
 
 function renderLibrary(){
+  const nav=$('#source-nav-list');if(nav)for(const button of nav.querySelectorAll('[data-source-view]')){const active=button.dataset.sourceView===activeSource;button.classList.toggle('active',active);button.setAttribute('aria-pressed',String(active));}
   $('#library-section').classList.toggle('is-empty',tracks.length===0);
   $('#track-count').textContent=`${tracks.length.toLocaleString('ja-JP')}曲`;
-  $('#playlist-tabs').innerHTML=`<button class="pill ${activePlaylist==='all'?'active':''}" data-playlist="all">すべての曲</button>`+playlists.map(p=>`<button class="pill ${activePlaylist===p.id?'active':''}" data-playlist="${escapeHTML(p.id)}">${escapeHTML([...(p.folderPath||[]),p.name].join(" / "))} <span>${p.trackIds.length}</span></button>`).join('');
+  $('#playlist-tabs').innerHTML=`<button class="pill ${activePlaylist==='all'&&!activeSource?'active':''}" data-playlist="all">すべての曲</button>`+playlists.map(p=>`<button class="pill ${activePlaylist===p.id?'active':''}" data-playlist="${escapeHTML(p.id)}">${escapeHTML([...(p.folderPath||[]),p.name].join(" / "))} <span>${p.trackIds.length}</span></button>`).join('');
   const query=$('#search').value.trim().toLocaleLowerCase();let filtered=tracks.filter(t=>(`${t.title} ${t.artist}`).toLocaleLowerCase().includes(query));
-  const playlist=playlists.find(p=>p.id===activePlaylist);if(playlist)filtered=filtered.filter(t=>playlist.trackIds.includes(t.id));
-  const sort=$('#sort').value;filtered.sort(sort==='bpm'?(a,b)=>(a.bpm||999)-(b.bpm||999):sort==='title'?(a,b)=>a.title.localeCompare(b.title,'ja'):playlist?(a,b)=>playlist.trackIds.indexOf(a.id)-playlist.trackIds.indexOf(b.id):(a,b)=>a.addedAt-b.addedAt);
-  $('#track-list').innerHTML=filtered.map((t,index)=>`<tr><td class="track-number">${String(index+1).padStart(2,'0')}</td><td><div class="track-identity"><button class="preview-track-button" data-preview="${escapeHTML(t.id)}" aria-label="${escapeHTML(t.title)} を試聴" aria-pressed="false" ${t.audioMissing?'disabled':''}>▶</button><div class="track-copy"><div class="track-title" title="${escapeHTML(t.filename)}">${escapeHTML(t.title)}</div><div class="track-artist">${escapeHTML(t.artist||'アーティスト未設定')}${t.rekordbox?' · XML':''}</div></div></div></td><td class="wave-cell"><div class="mini-wave" aria-hidden="true">${Array.from({length:55},(_,i)=>`<i style="height:${Math.max(3,(t.peaks?.[Math.floor(i*(t.peaks?.length||0)/55)]||0)*100)}%"></i>`).join('')}</div></td><td class="track-bpm" title="${t.rekordbox?'rekordbox XMLの平均BPM':t.confidence<.35?'解析結果は推定です。曲の情報で修正できます。':'BPM'}">${t.bpm?t.bpm.toFixed(2):'—'}</td><td class="track-duration">${time(t.duration)}</td><td><div class="track-actions">${t.audioMissing?`<button class="link-audio-button" data-link-audio="${escapeHTML(t.id)}">音源を選択</button>`:`<button class="load-button ${decks.a.trackId===t.id?'is-loaded':''}" data-load="a:${escapeHTML(t.id)}" aria-label="${escapeHTML(t.title)} をデッキ A へ">A</button><button class="load-button b ${decks.b.trackId===t.id?'is-loaded':''}" data-load="b:${escapeHTML(t.id)}" aria-label="${escapeHTML(t.title)} をデッキ B へ">B</button>`}</div></td><td><button class="icon-button more-button" data-edit="${escapeHTML(t.id)}" aria-label="${escapeHTML(t.title)} の情報を編集">⋯</button></td></tr>`).join('');
+  const selectedSource=sources.find(source=>source.id===activeSource);if(selectedSource){const ids=new Set(selectedSource.trackIds);filtered=filtered.filter(track=>ids.has(track.id));}
+  const playlist=playlists.find(p=>p.id===activePlaylist),positions=new Map(playlist?.trackIds.map((id,index)=>[id,index])||[]);if(playlist)filtered=filtered.filter(t=>positions.has(t.id));
+  const sort=$('#sort').value;filtered.sort(sort==='bpm'?(a,b)=>(a.bpm||999)-(b.bpm||999):sort==='title'?(a,b)=>a.title.localeCompare(b.title,'ja'):playlist?(a,b)=>positions.get(a.id)-positions.get(b.id):(a,b)=>a.addedAt-b.addedAt);
+  const pageCount=Math.max(1,Math.ceil(filtered.length/PAGE_SIZE));libraryPage=Math.min(libraryPage,pageCount-1);
+  $('#library-pages').hidden=filtered.length<=PAGE_SIZE;$('#previous-page').disabled=libraryPage===0;$('#next-page').disabled=libraryPage===pageCount-1;$('#page-status').textContent=`${filtered.length?libraryPage*PAGE_SIZE+1:0}–${Math.min(filtered.length,(libraryPage+1)*PAGE_SIZE)} / ${filtered.length.toLocaleString('ja-JP')}曲`;
+  $('#source-filter').hidden=!selectedSource;$('#source-filter').innerHTML=selectedSource?`<span>${escapeHTML(selectedSource.label)} · 保存済みライブラリ</span><button class="text-button" data-source-all>すべての曲へ</button>`:'';
+  $('#track-list').innerHTML=filtered.slice(libraryPage*PAGE_SIZE,(libraryPage+1)*PAGE_SIZE).map((t,index)=>`<tr><td class="track-number">${String(libraryPage*PAGE_SIZE+index+1).padStart(2,'0')}</td><td><div class="track-identity"><button class="preview-track-button" data-preview="${escapeHTML(t.id)}" aria-label="${escapeHTML(t.title)} を試聴" aria-pressed="false" ${t.audioMissing?'disabled':''}>▶</button><div class="track-copy"><div class="track-title" title="${escapeHTML(t.filename)}">${escapeHTML(t.title)}</div><div class="track-artist">${escapeHTML(t.artist||'アーティスト未設定')}${t.rekordbox?' · rekordbox':''}</div></div></div></td><td class="wave-cell"><div class="mini-wave" aria-hidden="true">${Array.from({length:55},(_,i)=>`<i style="height:${Math.max(3,(t.peaks?.[Math.floor(i*(t.peaks?.length||0)/55)]||0)*100)}%"></i>`).join('')}</div></td><td class="track-bpm" title="${t.rekordbox?'rekordboxの平均BPM':t.confidence<.35?'解析結果は推定です。曲の情報で修正できます。':'BPM'}">${t.bpm?t.bpm.toFixed(2):'—'}</td><td class="track-duration">${time(t.duration)}</td><td><div class="track-actions">${t.audioMissing?`<button class="link-audio-button" data-link-audio="${escapeHTML(t.id)}">音源を選択</button>`:`<button class="load-button ${decks.a.trackId===t.id?'is-loaded':''}" data-load="a:${escapeHTML(t.id)}" aria-label="${escapeHTML(t.title)} をデッキ A へ">A</button><button class="load-button b ${decks.b.trackId===t.id?'is-loaded':''}" data-load="b:${escapeHTML(t.id)}" aria-label="${escapeHTML(t.title)} をデッキ B へ">B</button>`}</div></td><td><button class="icon-button more-button" data-edit="${escapeHTML(t.id)}" aria-label="${escapeHTML(t.title)} の情報を編集">⋯</button></td></tr>`).join('');
   $('#empty-library').hidden=tracks.length>0;
   if(!filtered.length&&tracks.length)$('#track-list').innerHTML='<tr><td colspan="7" style="text-align:center;color:#959d9e;padding:32px">条件に合う曲はありません。</td></tr>';
   updatePreview();
@@ -279,8 +290,8 @@ function analyze(buffer){
 
 function setImporting(value){
   importing=value;
-  for(const id of ['import-top','import-empty','demo-button','demo-empty','import-xml','import-xml-empty','choose-xml']){
-    const el=$(`#${id}`);el.disabled=value;el.classList.toggle('importing',value);
+  for(const id of ['import-top','import-empty','demo-button','demo-empty','import-xml','import-xml-empty','choose-xml','open-sources','open-sources-empty','choose-source-folder','choose-source-files','start-source-import']){
+    const el=$(`#${id}`);if(!el)continue;el.disabled=value;el.classList.toggle('importing',value);
   }
 }
 
@@ -324,7 +335,7 @@ async function importFiles(files,selectedId=null){
         await trackQueue.run(imported.id,async()=>{
           const current=tracks.find(t=>t.id===imported.id);if(!current)throw new Error('この曲は削除されています。');
           const metadata=relinkMetadata(current,file,duration,peaks);
-          await library.putTrack(metadata,file);tracks=tracks.map(t=>t.id===metadata.id?metadata:t);
+          bufferCache.delete(metadata.id);await library.putTrack(metadata,file);tracks=tracks.map(t=>t.id===metadata.id?metadata:t);
         });linked++;
       }else{
         const result=await analyze(buffer);buffer=null;
@@ -353,6 +364,7 @@ function demoWav(bpm,index){
 }
 
 function openTrack(id){
+  if(importing){toast('読み込みが終わってから曲の情報を編集してください。');return;}
   const track=tracks.find(t=>t.id===id);if(!track)return;editingTrack=id;const form=$('#track-form');form.elements.title.value=track.title;form.elements.artist.value=track.artist;form.elements.bpm.value=track.bpm||'';$('#track-grid-note').hidden=!track.tempos?.length;const details=$('#track-import-details');details.hidden=!track.rekordbox;details.innerHTML=track.rekordbox?`<strong>rekordboxから取り込み</strong><br>${track.tempos?.length||0}個のテンポ区間 · ${(track.positionMarks||[]).filter(m=>m.num===-1).length}個のメモリーCUE／ループ<ul>${(track.positionMarks||[]).map(m=>`<li>${m.num<0?'MEMORY':`HOT CUE ${m.num+1}`} · ${time(m.start)}${m.type===4?`〜${time(m.end)} LOOP`:''} ${escapeHTML(m.name)}</li>`).join('')}</ul>`:'';
   form.elements.playlist.innerHTML='<option value="">追加しない</option>'+playlists.map(p=>`<option value="${escapeHTML(p.id)}">${escapeHTML([...(p.folderPath||[]),p.name].join(" / "))}</option>`).join('');$('#track-dialog').showModal();
 }
@@ -365,6 +377,55 @@ function renderMappings(){
 }
 
 async function storageInfo(){try{const estimate=await navigator.storage?.estimate?.();$('#storage-status').textContent=library.persistent?`端末内に保存${estimate?.usage?` / ${(estimate.usage/1024/1024).toFixed(1)} MB`:''}`:'一時保存（このセッションのみ）';}catch{}}
+
+function renderSources(){
+  const trackIds=new Set(tracks.filter(track=>!track.audioMissing).map(track=>track.id));
+  $('#saved-source-list').innerHTML=sources.length?sources.map(source=>`<div class="saved-source"><div><strong>${escapeHTML(source.label)}</strong><small>${source.trackIds.length}曲 · 音源保存 ${source.trackIds.filter(id=>trackIds.has(id)).length}曲</small></div><div class="saved-source-actions"><button class="button subtle compact" data-source-view="${escapeHTML(source.id)}">開く</button><button class="text-button" data-source-refresh="${escapeHTML(source.id)}">再読み込み</button><button class="text-button" data-source-forget="${escapeHTML(source.id)}" aria-label="${escapeHTML(source.label)}の参照だけ一覧から外す">一覧から外す</button></div></div>`).join(''):'<p class="source-note">まだ保存したライブラリはありません。</p>';
+  const nav=$('#source-nav-list');if(nav)nav.innerHTML=sources.map(source=>`<button class="source-nav-button" data-source-view="${escapeHTML(source.id)}"><span>${escapeHTML(source.label)}</span><small>${source.trackIds.length}</small></button>`).join('')||'<p class="source-note">フォルダやUSBから追加できます。</p>';
+}
+function openSources(reset=true){
+  if(!importing){if(reset)refreshSourceId=null;selectedSourceIndex=null;selectedCandidates=[];$('#source-selection').hidden=true;$('#source-database').innerHTML='';$('#source-progress').textContent='';}
+  renderSources();if(!$('#source-dialog').open)$('#source-dialog').showModal();
+}
+async function chooseSourceFolder(){
+  if(importing)return;
+  // Directory file input also works in current iPad Safari; no retained permission is needed.
+  $('#source-folder').click();
+}
+
+function selectSourceIndex(index){
+  if(!index.entries.size){$('#source-progress').textContent='対応するファイルがありません。DBまたは音源を含むフォルダを選んでください。';return;}
+  const candidates=databaseCandidates(index);
+  if(!candidates.length&&selectedSourceIndex&&selectedCandidates.length){
+    try{selectedSourceIndex=createSourceIndex([...selectedSourceIndex.entries.values(),...index.entries.values()],selectedSourceIndex.label);$('#source-progress').textContent=`音源フォルダ「${index.label}」を関連付けました。読み込みを開始できます。`;}catch(error){report(error);}
+    return;
+  }
+  if(!candidates.length){$('#source-progress').textContent='master.db、export.pdb、exportLibrary.db、またはrekordbox XMLが見つかりません。先にライブラリのDBを選び、その後に音源フォルダを選んでください。';return;}
+  selectedSourceIndex=index;selectedCandidates=candidates;
+  $('#source-database').innerHTML=candidates.map((candidate,i)=>`<option value="${i}">${escapeHTML(candidate.path)}</option>`).join('');
+  $('#source-selection').hidden=false;$('#source-selection-note').textContent=`${index.entries.size.toLocaleString('ja-JP')}ファイルを確認。音源が別フォルダなら、続けてそのフォルダを選択してください。`;
+  $('#source-progress').textContent='データベースの内容と音源を端末内に保存します。保存済みの編集内容は保持します。';
+  $('#source-folder').value='';$('#source-files').value='';
+}
+async function importSource(){
+  if(importing||!library||!selectedSourceIndex)return;
+  const candidate=selectedCandidates[Number($('#source-database').value)];if(!candidate)return;
+  setImporting(true);sourceController=new AbortController();$('#cancel-source-import').hidden=false;
+  let lastRender=0,sourcePositions=new Map();
+  try{
+    sourceReader=createLibraryReader();
+    const result=await cacheSourceLibrary({library,index:selectedSourceIndex,candidate,sources,sourceId:refreshSourceId,reader:sourceReader,signal:sourceController.signal,
+      saveTrack:(track,blob,base)=>trackQueue.run(track.id,async()=>{const current=tracks[sourcePositions.get(track.id)];if(!current)throw new Error('この曲は削除されています。');const next={...track};if(base)for(const field of ['title','artist','bpm','cue','hotcues','tempos','positionMarks','beatOffset'])if(JSON.stringify(current[field])!==JSON.stringify(base[field]))next[field]=current[field];await library.putTrack(next,blob);return next;}),
+      onProgress:message=>{$('#source-progress').textContent=message;$('#library-status').textContent=message;},
+      onMetadata:async()=>{[tracks,playlists]=await Promise.all([library.getTracks(),library.getPlaylists()]);sourcePositions=new Map(tracks.map((track,index)=>[track.id,index]));setView('library');renderLibrary();},
+      onTrack:track=>{const i=sourcePositions.get(track.id);if(i!==undefined)tracks[i]=track;else{sourcePositions.set(track.id,tracks.length);tracks.push(track);}if(performance.now()-lastRender>250){renderLibrary();lastRender=performance.now();}}});
+    const message=`${result.addedTracks}曲を追加。音源${result.copied}曲を保存、${result.reused}曲はキャッシュを利用。${result.missing?`音源未接続 ${result.missing}曲。`:''}${result.metadataCached?' DBの解析結果もキャッシュから読み込みました。':''}`;
+    $('#source-progress').textContent=message+(result.warnings.length?`\n${result.warnings.slice(0,3).join('\n')}${result.warnings.length>3?`\nほか${result.warnings.length-3}件`:''}`:'');$('#library-status').textContent=message;toast(library.persistent?'ライブラリを保存しました。次回は端末内のキャッシュから開きます。':'この画面を開いている間だけ保持します。端末の保存領域を利用できません。');
+    // Request persistence only after the user explicitly imported files. Denial leaves normal caching intact.
+    navigator.storage?.persist?.().catch(()=>{});
+  }catch(error){const message=sourceController.signal.aborted?'読み込みを中止しました。保存済みの曲はそのまま使えます。':error.message;$('#source-progress').textContent=message;$('#library-status').textContent=message;if(!sourceController.signal.aborted)report(error);}
+  finally{sourceReader?.close();sourceReader=null;sourceController=null;setImporting(false);$('#cancel-source-import').hidden=true;[tracks,playlists,sources]=await Promise.all([library.getTracks(),library.getPlaylists(),library.getSources()]);renderSources();renderLibrary();await storageInfo();}
+}
 
 function events(){
   installFileDrop({target:document,host:window,onActive:active=>{$('#file-drop-overlay').hidden=!active;},onFiles:files=>{
@@ -379,7 +440,12 @@ function events(){
     if(target.dataset.edit)openTrack(target.dataset.edit);
     if(target.dataset.preview)togglePreview(target.dataset.preview).catch(report);
     if(target.dataset.hotcue){const [deck,index]=target.dataset.hotcue.split(':');hotCue(deck,Number(index),event.shiftKey).catch(report);}
-    if(target.dataset.playlist){activePlaylist=target.dataset.playlist;renderLibrary();}
+    if(target.dataset.playlist){activePlaylist=target.dataset.playlist;activeSource=null;libraryPage=0;renderLibrary();}
+    if(target.hasAttribute('data-open-sources'))openSources();
+    if(target.dataset.sourceView){activeSource=target.dataset.sourceView;activePlaylist='all';libraryPage=0;setView('library');renderLibrary();$('#source-dialog').close();}
+    if(target.hasAttribute('data-source-all')){activeSource=null;activePlaylist='all';libraryPage=0;renderLibrary();}
+    if(target.dataset.sourceRefresh&&!importing){refreshSourceId=target.dataset.sourceRefresh;openSources(false);$('#source-progress').textContent='更新する元のライブラリフォルダ、またはUSBを選び直してください。保存済みの編集内容は保持します。';}
+    if(target.dataset.sourceForget&&!importing){library.removeSource(target.dataset.sourceForget).then(async()=>{sources=await library.getSources();if(activeSource===target.dataset.sourceForget)activeSource=null;renderSources();renderLibrary();}).catch(report);}
     if(target.dataset.loopSize){const [deck,size]=target.dataset.loopSize.split(':');decks[deck].loopBeats=Number(size);$$(`[data-loop-size^="${deck}:"]`).forEach(b=>b.classList.toggle('active',b===target));if(engine.getState(deck).loop){engine.clearLoop(deck);toggleLoop(deck);updateDecks();}}
     if(target.hasAttribute('data-close-dialog'))target.closest('dialog').close();
     if(target.dataset.removeMapping)mapping.removeMapping(target.dataset.removeMapping);
@@ -407,6 +473,14 @@ function events(){
   $('#preview-reset').onclick=()=>{preview.setRate(1);for(const band of ['low','mid','high'])preview.setEQ(band,0);};
 
   for(const id of ['import-top','import-empty'])$(`#${id}`).onclick=()=>$('#audio-files').click();
+  for(const id of ['open-sources','open-sources-empty'])$(`#${id}`)?.addEventListener('click',()=>openSources());
+  $('#choose-source-folder').onclick=()=>chooseSourceFolder().catch(report);
+  $('#choose-source-files').onclick=()=>$('#source-files').click();
+  for(const id of ['source-folder','source-files'])$(`#${id}`).onchange=event=>{try{selectSourceIndex(indexFileList(event.target.files));}catch(error){$('#source-progress').textContent=error.message;report(error);}};
+  $('#start-source-import').onclick=()=>importSource().catch(report);
+  $('#cancel-source-import').onclick=()=>{sourceController?.abort();sourceReader?.close();};
+  $('#previous-page').onclick=()=>{libraryPage=Math.max(0,libraryPage-1);renderLibrary();};
+  $('#next-page').onclick=()=>{libraryPage++;renderLibrary();};
   $('#audio-files').addEventListener('change',e=>importFiles([...e.target.files]).catch(report));
   $('#link-audio-file').addEventListener('change',e=>{const id=relinkTrack;relinkTrack=null;importFiles([...e.target.files],id).catch(report);});
   for(const id of ['import-xml','import-xml-empty'])$(`#${id}`).onclick=()=>$('#xml-dialog').showModal();
@@ -414,10 +488,10 @@ function events(){
   $('#xml-file').addEventListener('change',e=>importXml(e.target.files[0]).catch(report));
   for(const id of ['demo-button','demo-empty'])$(`#${id}`).onclick=()=>importFiles([demoWav(124,0),demoWav(128,1)]).catch(report);
   $('#show-help').onclick=()=>$('#help-dialog').showModal();$('#usb-info').onclick=()=>$('#usb-dialog').showModal();
-  $('#search').addEventListener('input',renderLibrary);$('#sort').addEventListener('change',renderLibrary);$('#sort-bpm').onclick=()=>{$('#sort').value=$('#sort').value==='bpm'?'added':'bpm';renderLibrary();};
+  $('#search').addEventListener('input',()=>{libraryPage=0;renderLibrary();});$('#sort').addEventListener('change',()=>{libraryPage=0;renderLibrary();});$('#sort-bpm').onclick=()=>{$('#sort').value=$('#sort').value==='bpm'?'added':'bpm';renderLibrary();};
   $('#new-playlist').onclick=async()=>{const name=await askPlaylistName();if(!name)return;const p={id:uid(),name:name.slice(0,80),trackIds:[]};const next=[...playlists,p];try{await library.putPlaylists(next);playlists=next;activePlaylist=p.id;renderLibrary();}catch(error){report(error);}};
   $('#track-form').onsubmit=async event=>{
-    event.preventDefault();const id=editingTrack;const form=event.target;
+    event.preventDefault();if(importing){toast('読み込み完了後に保存してください。');return;}const id=editingTrack;const form=event.target;
     const fields={title:form.elements.title.value.trim(),artist:form.elements.artist.value.trim(),bpm:form.elements.bpm.value?Number(form.elements.bpm.value):null};
     const playlistId=form.elements.playlist.value;
     if(!fields.title)return;
@@ -430,12 +504,13 @@ function events(){
   };
   for(const [id,multiplier]of[['half-bpm',.5],['double-bpm',2]])$(`#${id}`).onclick=()=>{const input=$('#track-form').elements.bpm;const value=Number(input.value)*multiplier;if(value>=30&&value<=300)input.value=value.toFixed(2);};
   $('#delete-track').onclick=async()=>{
+    if(importing){toast('読み込み完了後に削除してください。');return;}
     const track=tracks.find(t=>t.id===editingTrack);if(!track||!await askConfirm(`「${track.title}」をDECKFLOWから削除しますか？元の音源ファイルは削除しません。`))return;
     try{
       await trackQueue.run(track.id,async()=>{
         for(const id of ['a','b'])if(decks[id].pendingTrackId===track.id){decks[id].loadNonce++;decks[id].pendingTrackId=null;}
         if(preview.getState().trackId===track.id)preview.clear();
-        await library.removeTrack(track.id);
+        bufferCache.delete(track.id);await library.removeTrack(track.id);
         for(const id of ['a','b'])if(decks[id].trackId===track.id){engine.pause(id);decks[id].trackId=null;decks[id].loadNonce++;}
         tracks=tracks.filter(t=>t.id!==track.id);playlists=await library.getPlaylists();
       });
@@ -451,14 +526,14 @@ function events(){
   $('#reset-profile').onclick=async()=>{if(await askConfirm('MIDI・キーの割り当てを初期状態へ戻しますか？'))mapping.reset();};
   document.addEventListener('keydown',e=>{if(e.code==='Escape'&&$('#library-tools')?.open){$('#library-tools').open=false;$('#library-tools summary').focus();return;}if(e.code==='Escape'&&mapping.learning){mapping.cancelLearn();renderMappings();return;}mapping.handleKeyDown(e);});document.addEventListener('keyup',e=>mapping.handleKeyUp(e));
   window.addEventListener('resize',()=>updateDecks());
-  window.addEventListener('pagehide',()=>{preview.clear();for(const id of ['a','b'])engine.pause(id);});
+  window.addEventListener('pagehide',()=>{sourceController?.abort();sourceReader?.close();bufferCache.clear();preview.clear();for(const id of ['a','b'])engine.pause(id);});
 }
 
 async function start(){
   renderDecks();events();setView('library');renderMappings();renderMIDIStatus();
   for(const id of ['a','b']){mapping.setActionValue(`${id}.tempo`,.5);mapping.setActionValue(`${id}.volume`,.85);for(const band of ['low','mid','high'])mapping.setActionValue(`${id}.eq.${band}`,24/36);}
   mapping.setActionValue('mixer.crossfader',.5);mapping.setActionValue('mixer.master',.8);
-  library=await openLibrary();tracks=await library.getTracks();playlists=await library.getPlaylists();renderLibrary();updateDecks();await storageInfo();if(library.warning)toast(library.warning);
+  library=await openLibrary();[tracks,playlists,sources]=await Promise.all([library.getTracks(),library.getPlaylists(),library.getSources()]);renderSources();renderLibrary();updateDecks();await storageInfo();if(library.warning)toast(library.warning);
   if(window.DECKFLOW_NATIVE){$('.mapping-note').textContent='iPadアプリではCoreMIDIで接続した機材を学習できます。音量・EQなどの連続操作はMIDI、キーはボタン操作に対応します。物理機材の互換性とヘッドホンCUEの独立出力は実機確認が必要です。';}
   if('serviceWorker'in navigator&&!window.DECKFLOW_NATIVE)navigator.serviceWorker.register('./sw.js').catch(error=>console.warn('Offline cache unavailable',error));
   requestAnimationFrame(animate);

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {PreviewPlayer} from '../dist/preview-player.js';
+import {AudioBufferCache} from '../dist/audio-buffer-cache.js';
 
 const deferred = () => { let resolve, reject; const promise = new Promise((yes,no) => {resolve=yes;reject=no;}); return {promise,resolve,reject}; };
 const flush = () => new Promise(resolve => setImmediate(resolve));
@@ -244,4 +245,55 @@ test('the same track keeps tempo and EQ after stop; a different track resets bot
   assert.equal(player.getState().rate,1);
   assert.deepEqual(player.getState().eq,{low:0,mid:0,high:0});
   for(const node of Object.values(player.eqNodes))assert.equal(node.gain.value,0);
+});
+
+test('shared buffer lookup happens after gesture resume and replay after stop reuses cached PCM', async () => {
+  const context = new Context(), cache = new AudioBufferCache();
+  let lookups = 0, reads = 0;
+  context.decodeAudioData = async id => {context.decoded.push(id); return {id, duration:60, length:1024, numberOfChannels:2};};
+  const player = new PreviewPlayer({createContext:()=>context, getAudio:async id=>{reads++; return blob(id);},
+    getBuffer:(id, decode)=>{lookups++; assert.equal(context.state, 'running'); return cache.get(id, decode);}});
+  const first = player.toggle('A');
+  assert.equal(context.resumeCalls, 1);
+  assert.equal(lookups, 0);
+  await first;
+  player.stop();
+  assert.equal(player.buffer, null);
+  await player.toggle('A');
+  assert.equal(player.getState().playing, true);
+  assert.equal(lookups, 2);
+  assert.equal(reads, 1);
+  assert.deepEqual(context.decoded, ['A']);
+});
+
+test('cancelling an audition does not cancel a shared decode or allow stale autoplay', async () => {
+  for (const cancel of ['stop', 'clear', 'dispose']) {
+    const context = new Context(), cache = new AudioBufferCache(), wait = deferred();
+    context.decodeAudioData = async id => {context.decoded.push(id); return {id, duration:60, length:1024, numberOfChannels:2};};
+    const player = new PreviewPlayer({createContext:()=>context, getAudio:()=>wait.promise,
+      getBuffer:(id, decode)=>cache.get(id, decode)});
+    const audition = player.toggle('A');
+    await flush();
+    const deck = cache.get('A', () => assert.fail('shared work was not reused'));
+    player[cancel]();
+    wait.resolve(blob('A'));
+    await audition;
+    assert.equal((await deck).id, 'A');
+    assert.deepEqual(context.decoded, ['A']);
+    assert.equal(context.sources.length, 0);
+    assert.equal(player.getState().playing, false);
+    assert.equal(player.buffer, null);
+  }
+});
+
+test('a stale shared-cache rejection does not affect a later successful audition', async () => {
+  const context = new Context(), first = deferred();
+  const player = new PreviewPlayer({createContext:()=>context,
+    getBuffer:id=>id === 'A' ? first.promise : Promise.resolve({duration:60})});
+  const old = player.toggle('A'); await flush();
+  await player.toggle('B');
+  first.reject(new Error('stale cache error')); await old;
+  assert.equal(player.getState().trackId, 'B');
+  assert.equal(player.getState().playing, true);
+  assert.equal(player.getState().error, null);
 });
