@@ -1,7 +1,7 @@
-import {normalizeRekordboxMetadata, normalizeFolderPath, parseRekordboxLocation} from './rekordbox-model.js?v=af0e2156cf5d84be';
-import {withOwnedAudio, readStoredAudio, deleteAudioChunks} from './audio-chunk-store.js?v=af0e2156cf5d84be';
-import {isAudioReadSource, ownAudioReadSource} from './audio-read-source.js?v=af0e2156cf5d84be';
-import {normalizeTrackMetadata} from './track-metadata.js?v=af0e2156cf5d84be';
+import {normalizeRekordboxMetadata, normalizeFolderPath, parseRekordboxLocation} from './rekordbox-model.js?v=7c8bf604d2c9c1e4';
+import {withOwnedAudio, readStoredAudio, deleteAudioChunks} from './audio-chunk-store.js?v=7c8bf604d2c9c1e4';
+import {isAudioReadSource, ownAudioReadSource} from './audio-read-source.js?v=7c8bf604d2c9c1e4';
+import {normalizeTrackMetadata} from './track-metadata.js?v=7c8bf604d2c9c1e4';
 /**
  * DECKFLOW local library. Metadata and encoded audio live in separate stores,
  * so listing a large library does not read every audio Blob into memory.

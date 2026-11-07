@@ -1,6 +1,6 @@
 /** Plan a union of the two device indexes without renumbering/deleting originals.
  * Matching is by full audio path and unambiguous playlist hierarchy, never basename. */
-import {normalizeSourcePath} from './library-source.js?v=af0e2156cf5d84be';
+import {normalizeSourcePath} from './library-source.js?v=7c8bf604d2c9c1e4';
 const path = value => '/' + normalizeSourcePath(value);
 const fail = message => { throw new Error(message); };
 const max = values => Math.max(0, ...values);

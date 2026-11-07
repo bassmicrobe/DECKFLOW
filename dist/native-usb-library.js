@@ -1,15 +1,15 @@
 /** Direct USB workflows. Only the iPad permission bridge mutates the volume;
  * audio and binary generation stay local. No download or remote server. */
-import {createAudioReadSource} from './audio-read-source.js?v=af0e2156cf5d84be';
-import {createSourceIndex, databaseCandidates, databaseBytes, sourceDigest, normalizeSourcePath} from './library-source.js?v=af0e2156cf5d84be';
-import {cacheSourceLibrary} from './source-import.js?v=af0e2156cf5d84be';
-import {parseDeviceDatabase, parseDeviceAnalysis, mergeDeviceAnalysis} from './rekordbox-device.js?v=af0e2156cf5d84be';
-import {exportPositionMarks, encodeRekordboxLocation} from './usb-export.js?v=af0e2156cf5d84be';
-import {readUsbAudioInfo, feedUsbAudio} from './usb-audio.js?v=af0e2156cf5d84be';
-import {planLibrary, mergeLibrary, inspectLibrary, createAnalysisMeter, patchAnalysis} from './vendor/browser-usb/writer.js?v=af0e2156cf5d84be';
+import {createAudioReadSource} from './audio-read-source.js?v=7c8bf604d2c9c1e4';
+import {createSourceIndex, databaseCandidates, databaseBytes, sourceDigest, normalizeSourcePath} from './library-source.js?v=7c8bf604d2c9c1e4';
+import {cacheSourceLibrary} from './source-import.js?v=7c8bf604d2c9c1e4';
+import {parseDeviceDatabase, parseDeviceAnalysis, mergeDeviceAnalysis} from './rekordbox-device.js?v=7c8bf604d2c9c1e4';
+import {exportPositionMarks, encodeRekordboxLocation} from './usb-export.js?v=7c8bf604d2c9c1e4';
+import {readUsbAudioInfo, feedUsbAudio} from './usb-audio.js?v=7c8bf604d2c9c1e4';
+import {planLibrary, mergeLibrary, inspectLibrary, createAnalysisMeter, patchAnalysis} from './vendor/browser-usb/writer.js?v=7c8bf604d2c9c1e4';
 
-import {inspectOneLibrary, updateOneLibrary} from './onelibrary-writer.js?v=af0e2156cf5d84be';
-import {planUSBMerge} from './usb-library-plan.js?v=af0e2156cf5d84be';
+import {inspectOneLibrary, updateOneLibrary} from './onelibrary-writer.js?v=7c8bf604d2c9c1e4';
+import {planUSBMerge} from './usb-library-plan.js?v=7c8bf604d2c9c1e4';
 
 const PDB = 'PIONEER/rekordbox/export.pdb';
 const ONE = 'PIONEER/rekordbox/exportLibrary.db';

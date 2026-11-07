@@ -1,29 +1,29 @@
-import {installMotion} from './ui-motion.js?v=af0e2156cf5d84be';
-import {createAnalysisInput} from './analysis-input.js?v=af0e2156cf5d84be';
-import {isPcmFileResource} from './audio-resource.js?v=af0e2156cf5d84be';
-import {analyzeAudioResource,audioResourcePeaks} from './audio-resource-analysis.js?v=af0e2156cf5d84be';
-import {bindTouchSlider} from './touch-slider.js?v=af0e2156cf5d84be';
-import {bindPlatterGesture} from './platter-gesture.js?v=af0e2156cf5d84be';
-import {AudioEngine} from './audio-engine.js?v=af0e2156cf5d84be';
-import {MappingManager} from './mappings.js?v=af0e2156cf5d84be';
-import {installDeckMidiLearn} from './deck-midi-learn.js?v=af0e2156cf5d84be';
-import {openLibrary} from './library-store.js?v=af0e2156cf5d84be';
-import {nativeUSBAvailable,openNativeUSB,importNativeUSB,writeNativeHotCues,exportNativeUSB} from './native-usb-library.js?v=af0e2156cf5d84be';
-import {USBDeviceMonitor,sourcePlaylistIds,isDeviceLibrarySource} from './usb-devices.js?v=af0e2156cf5d84be';
-import {createTrackQueue} from './track-updates.js?v=af0e2156cf5d84be';
-import {editTrackHotCue} from './track-hotcues.js?v=af0e2156cf5d84be';
-import {installFileDrop,isAudioFile} from './file-drop.js?v=af0e2156cf5d84be';
-import {PreviewPlayer} from './preview-player.js?v=af0e2156cf5d84be';
-import {sortLibraryTracks} from './library-sort.js?v=af0e2156cf5d84be';
-import {LIBRARY_COLUMNS,normalizeLibraryColumns,libraryColumnText} from './library-columns.js?v=af0e2156cf5d84be';
-import {AudioBufferCache} from './audio-buffer-cache.js?v=af0e2156cf5d84be';
-import {WaveformCache} from './waveform-cache.js?v=af0e2156cf5d84be';
-import {SelectedWaveformLoader} from './waveform-selection.js?v=af0e2156cf5d84be';
-import {drawWaveform,getWaveformWindow,timeAtWaveformX,waveformBeats,waveformBeatPosition} from './waveform-view.js?v=af0e2156cf5d84be';
-import {indexFileList,indexDirectory,createSourceIndex,databaseCandidates,createLibraryReader} from './library-source.js?v=af0e2156cf5d84be';
-import {cacheSourceLibrary} from './source-import.js?v=af0e2156cf5d84be';
-import {parseRekordboxXml} from './rekordbox-import.js?v=af0e2156cf5d84be';
-import {findImportedAudio,audioPeaks,tempoAt,advanceBeats,relinkMetadata} from './import-audio.js?v=af0e2156cf5d84be';
+import {installMotion} from './ui-motion.js?v=7c8bf604d2c9c1e4';
+import {createAnalysisInput} from './analysis-input.js?v=7c8bf604d2c9c1e4';
+import {isPcmFileResource} from './audio-resource.js?v=7c8bf604d2c9c1e4';
+import {analyzeAudioResource,audioResourcePeaks} from './audio-resource-analysis.js?v=7c8bf604d2c9c1e4';
+import {bindTouchSlider} from './touch-slider.js?v=7c8bf604d2c9c1e4';
+import {bindPlatterGesture} from './platter-gesture.js?v=7c8bf604d2c9c1e4';
+import {AudioEngine} from './audio-engine.js?v=7c8bf604d2c9c1e4';
+import {MappingManager} from './mappings.js?v=7c8bf604d2c9c1e4';
+import {installDeckMidiLearn} from './deck-midi-learn.js?v=7c8bf604d2c9c1e4';
+import {openLibrary} from './library-store.js?v=7c8bf604d2c9c1e4';
+import {nativeUSBAvailable,openNativeUSB,importNativeUSB,writeNativeHotCues,exportNativeUSB} from './native-usb-library.js?v=7c8bf604d2c9c1e4';
+import {USBDeviceMonitor,sourcePlaylistIds,isDeviceLibrarySource} from './usb-devices.js?v=7c8bf604d2c9c1e4';
+import {createTrackQueue} from './track-updates.js?v=7c8bf604d2c9c1e4';
+import {editTrackHotCue} from './track-hotcues.js?v=7c8bf604d2c9c1e4';
+import {installFileDrop,isAudioFile} from './file-drop.js?v=7c8bf604d2c9c1e4';
+import {PreviewPlayer} from './preview-player.js?v=7c8bf604d2c9c1e4';
+import {sortLibraryTracks} from './library-sort.js?v=7c8bf604d2c9c1e4';
+import {LIBRARY_COLUMNS,normalizeLibraryColumns,libraryColumnText} from './library-columns.js?v=7c8bf604d2c9c1e4';
+import {AudioBufferCache} from './audio-buffer-cache.js?v=7c8bf604d2c9c1e4';
+import {WaveformCache} from './waveform-cache.js?v=7c8bf604d2c9c1e4';
+import {SelectedWaveformLoader} from './waveform-selection.js?v=7c8bf604d2c9c1e4';
+import {drawWaveform,getWaveformWindow,timeAtWaveformX,waveformBeats,waveformBeatPosition} from './waveform-view.js?v=7c8bf604d2c9c1e4';
+import {indexFileList,indexDirectory,createSourceIndex,databaseCandidates,createLibraryReader} from './library-source.js?v=7c8bf604d2c9c1e4';
+import {cacheSourceLibrary} from './source-import.js?v=7c8bf604d2c9c1e4';
+import {parseRekordboxXml} from './rekordbox-import.js?v=7c8bf604d2c9c1e4';
+import {findImportedAudio,audioPeaks,tempoAt,advanceBeats,relinkMetadata} from './import-audio.js?v=7c8bf604d2c9c1e4';
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -569,7 +569,7 @@ function analyze(buffer,onProgress=()=>{}){
 }
 function analyzeInput(samples,sampleRate){
   return new Promise((resolve,reject)=>{
-    if(!worker){worker=new Worker(new URL('./analysis-worker.js?v=af0e2156cf5d84be',import.meta.url),{type:'module'});worker.onmessage=({data})=>{const entry=pendingAnalysis.get(data.id);if(!entry)return;pendingAnalysis.delete(data.id);clearTimeout(entry.timer);data.error?entry.reject(new Error(data.error)):entry.resolve(data.result);};worker.onerror=()=>{for(const entry of pendingAnalysis.values()){clearTimeout(entry.timer);entry.reject(new Error('解析処理を開始できませんでした。ページを再読み込みしてください。'));}pendingAnalysis.clear();worker.terminate();worker=null;};}
+    if(!worker){worker=new Worker(new URL('./analysis-worker.js?v=7c8bf604d2c9c1e4',import.meta.url),{type:'module'});worker.onmessage=({data})=>{const entry=pendingAnalysis.get(data.id);if(!entry)return;pendingAnalysis.delete(data.id);clearTimeout(entry.timer);data.error?entry.reject(new Error(data.error)):entry.resolve(data.result);};worker.onerror=()=>{for(const entry of pendingAnalysis.values()){clearTimeout(entry.timer);entry.reject(new Error('解析処理を開始できませんでした。ページを再読み込みしてください。'));}pendingAnalysis.clear();worker.terminate();worker=null;};}
     const id=++analysisId;const timer=setTimeout(()=>{pendingAnalysis.delete(id);reject(new Error('解析処理が応答しません。もう一度お試しください。'));},90000);
     pendingAnalysis.set(id,{resolve,reject,timer});worker.postMessage({id,samples,sampleRate},[samples.buffer]);
   });
@@ -776,7 +776,27 @@ async function chooseSourceFolder(){
     if(session){selectSourceIndex(session.index);refreshSourceId=connectedUSBSource()?.id||refreshSourceId;}
     return;
   }
-  // Directory file input also works in current iPad Safari; no retained permission is needed.
+  // A read-only directory picker avoids the generic file-input confirmation
+  // in supporting browsers. Handles stay in this selection; never request writes.
+  if(typeof globalThis.showDirectoryPicker==='function'){
+    const controller=new AbortController();sourceController=controller;setImporting(true);
+    $('#source-progress').textContent='読み込むフォルダを選んでください。';
+    try{
+      const handle=await globalThis.showDirectoryPicker({id:'deckflow-library',mode:'read'});
+      controller.signal.throwIfAborted();
+      $('#cancel-source-import').hidden=false;
+      $('#source-progress').textContent='フォルダ内のファイルを確認しています…';
+      const index=await indexDirectory(handle,{signal:controller.signal,onProgress:count=>{
+        $('#source-progress').textContent=`フォルダ内のファイルを確認しています… ${count.toLocaleString('ja-JP')}件`;
+      }});
+      controller.signal.throwIfAborted();selectSourceIndex(index);
+    }catch(error){
+      if(error.name==='AbortError')$('#source-progress').textContent='フォルダの読み込みを中止しました。';
+      else{const message=['NotAllowedError','SecurityError'].includes(error.name)?'フォルダを開けませんでした。読み取りを許可して、もう一度選択してください。':error.message;$('#source-progress').textContent=message;throw new Error(message);}
+    }finally{sourceController=null;$('#cancel-source-import').hidden=true;setImporting(false);}
+    return;
+  }
+  // Safari uses its standard folder selector; its system labels are browser-owned.
   $('#source-folder').click();
 }
 

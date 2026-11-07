@@ -1,8 +1,8 @@
-import {parseRekordboxXml} from './rekordbox-import.js?v=af0e2156cf5d84be';
-import {parseRekordboxLocation} from './rekordbox-model.js?v=af0e2156cf5d84be';
-import {parseDeviceDatabase, parseDeviceAnalysis, mergeDeviceAnalysis} from './rekordbox-device.js?v=af0e2156cf5d84be';
-import {parseRekordboxDatabase} from './rekordbox-sqlite.js?v=af0e2156cf5d84be';
-import {validateLibrarySnapshot} from './library-store.js?v=af0e2156cf5d84be';
+import {parseRekordboxXml} from './rekordbox-import.js?v=7c8bf604d2c9c1e4';
+import {parseRekordboxLocation} from './rekordbox-model.js?v=7c8bf604d2c9c1e4';
+import {parseDeviceDatabase, parseDeviceAnalysis, mergeDeviceAnalysis} from './rekordbox-device.js?v=7c8bf604d2c9c1e4';
+import {parseRekordboxDatabase} from './rekordbox-sqlite.js?v=7c8bf604d2c9c1e4';
+import {validateLibrarySnapshot} from './library-store.js?v=7c8bf604d2c9c1e4';
 self.onmessage = async ({data}) => {
   const {id,operation} = data;
   try {

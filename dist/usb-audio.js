@@ -1,5 +1,5 @@
 /** Source-rate decoding and bounded PCM for direct device export. */
-import {readWavInfo, openAudioFile, isPcmFileResource} from './audio-resource.js?v=af0e2156cf5d84be';
+import {readWavInfo, openAudioFile, isPcmFileResource} from './audio-resource.js?v=7c8bf604d2c9c1e4';
 const fail = message => { throw new Error(message); };
 const abort = signal => signal?.throwIfAborted();
 const text = bytes => String.fromCharCode(...bytes);

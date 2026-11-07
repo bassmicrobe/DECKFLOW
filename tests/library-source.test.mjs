@@ -69,6 +69,28 @@ test('directory handles enumerate lazily and cancellation never reads audio',asy
   const controller=new AbortController();controller.abort();await assert.rejects(indexDirectory(handle,{signal:controller.signal}),{name:'AbortError'});
 });
 
+test('an already cancelled empty directory is rejected without starting enumeration',async()=>{
+  let scans=0;
+  const handle={name:'USB',kind:'directory',async *values(){scans++;}};
+  const controller=new AbortController();controller.abort();
+  await assert.rejects(indexDirectory(handle,{signal:controller.signal}),{name:'AbortError'});
+  assert.equal(scans,0);
+});
+
+test('cancelling during the final directory iterator wait never returns a partial index',async()=>{
+  let reads=0,finishEnumeration,notifyWaiting;
+  const waiting=new Promise(resolve=>{notifyWaiting=resolve;});
+  const handle={name:'USB',kind:'directory',async *values(){
+    yield {kind:'file',name:'song.wav',getFile:async()=>{reads++;return new File([],'song.wav');}};
+    await new Promise(resolve=>{finishEnumeration=resolve;notifyWaiting();});
+  }};
+  const controller=new AbortController();
+  const indexing=indexDirectory(handle,{signal:controller.signal});
+  await waiting;controller.abort();finishEnumeration();
+  await assert.rejects(indexing,{name:'AbortError'});
+  assert.equal(reads,0);
+});
+
 test('source import persists preparation and encoded audio without decoding, and cached reopen skips DB/ANLZ parsing',async()=>{
   const library=await openLibrary(),s=setup();
   const first=await cacheSourceLibrary({library,...s});
