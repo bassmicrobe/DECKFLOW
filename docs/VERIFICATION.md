@@ -211,3 +211,5 @@ JSONのnative保存・共有はソース確認までです。実機での保存�
 - CUE/プレビュー/保存キュー/USB一覧の対象テスト33件成功。元のテストに、CUE保存の失敗、export時のmainCUE保持、USB DBの判定、保存sourceの返却を追加。
 - 最終build:65 runtime assets /1993KiB、cache `5efc940e30d08886`。iOS同梱資産134ファイルへ同期。
 - スクリーンショット: `outputs/deckflow-final-qa/library-hotcue.png` と `usb-folder-guide.png`（ローカルQA出力）。
+- 固定bakenを指定した最終全体テストは **376件中375成功、失敗0、1スキップ**（任意の1 GiB WAVテスト）。
+- ブラウザのフォルダ選択が「アップロード」と表示される場合に備えて、読み込みダイアログとREADMEに端末内処理・サーバー送信なしを明記。File API→Worker→IndexedDBの経路を確認し、音源/メタデータを送信する処理がないことをコードで確認。
