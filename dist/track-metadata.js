@@ -1,3 +1,7 @@
+// Imported titles and artist credits can exceed the former editor-only limit.
+// Keep one bounded limit across readers, local storage and metadata edits.
+export const MAX_TRACK_TEXT_LENGTH = 1024;
+
 /** Source dates describe the source record, never the time it was read. */
 export function metadataDate(value) {
   if (value == null || value === '' || value === 0) return '';

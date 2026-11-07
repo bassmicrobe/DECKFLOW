@@ -3,9 +3,9 @@
  * Browser output is the current system route; this is not a multichannel CUE driver.
  * Key lock uses locally vendored SoundTouchJS; scratch reads PCM in its own worklet.
  */
-import {openAudioFile} from './audio-resource.js?v=88e0687b343dbe25';
-import {PcmFileSource, isPcmFile} from './pcm-file-source.js?v=88e0687b343dbe25';
-import {normalizeBeatGrid, beatSegment, beatPosition} from './beat-grid.js?v=88e0687b343dbe25';
+import {openAudioFile} from './audio-resource.js?v=b48f446ea6c7f1bb';
+import {PcmFileSource, isPcmFile} from './pcm-file-source.js?v=b48f446ea6c7f1bb';
+import {normalizeBeatGrid, beatSegment, beatPosition} from './beat-grid.js?v=b48f446ea6c7f1bb';
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, Number.isFinite(Number(value)) ? Number(value) : min));
 
@@ -100,8 +100,8 @@ export class AudioEngine {
     }
     this.keyLockRegistration = (async () => {
       try {
-        const module = await import('./vendor/soundtouchjs/packages/audio-worklet/.dist/SoundTouchNode.js?v=88e0687b343dbe25');
-        const processorUrl = new URL('./vendor/soundtouchjs/packages/audio-worklet/.dist/soundtouch-processor.js?v=88e0687b343dbe25', import.meta.url);
+        const module = await import('./vendor/soundtouchjs/packages/audio-worklet/.dist/SoundTouchNode.js?v=b48f446ea6c7f1bb');
+        const processorUrl = new URL('./vendor/soundtouchjs/packages/audio-worklet/.dist/soundtouch-processor.js?v=b48f446ea6c7f1bb', import.meta.url);
         await module.SoundTouchNode.register(context, processorUrl);
         if (this.disposed || context !== this.context) return false;
         this.SoundTouchNode = module.SoundTouchNode;
@@ -123,7 +123,7 @@ export class AudioEngine {
     if (!context.audioWorklet || !globalThis.AudioWorkletNode) {
       throw new Error('この環境はスクラッチ音声に対応していません。HTTPSまたはlocalhostで対応ブラウザーを使ってください。');
     }
-    this.scratchRegistration = context.audioWorklet.addModule(new URL('./scratch-worklet.js?v=88e0687b343dbe25', import.meta.url)).catch(error => {
+    this.scratchRegistration = context.audioWorklet.addModule(new URL('./scratch-worklet.js?v=b48f446ea6c7f1bb', import.meta.url)).catch(error => {
       this.scratchRegistration = null;
       throw error;
     });

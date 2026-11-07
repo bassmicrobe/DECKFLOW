@@ -1,29 +1,29 @@
-import {installMotion} from './ui-motion.js?v=88e0687b343dbe25';
-import {createAnalysisInput} from './analysis-input.js?v=88e0687b343dbe25';
-import {isPcmFileResource} from './audio-resource.js?v=88e0687b343dbe25';
-import {analyzeAudioResource,audioResourcePeaks} from './audio-resource-analysis.js?v=88e0687b343dbe25';
-import {bindTouchSlider} from './touch-slider.js?v=88e0687b343dbe25';
-import {bindPlatterGesture} from './platter-gesture.js?v=88e0687b343dbe25';
-import {AudioEngine} from './audio-engine.js?v=88e0687b343dbe25';
-import {MappingManager} from './mappings.js?v=88e0687b343dbe25';
-import {installDeckMidiLearn} from './deck-midi-learn.js?v=88e0687b343dbe25';
-import {openLibrary} from './library-store.js?v=88e0687b343dbe25';
-import {nativeUSBAvailable,openNativeUSB,importNativeUSB,writeNativeHotCues,exportNativeUSB} from './native-usb-library.js?v=88e0687b343dbe25';
-import {USBDeviceMonitor,sourcePlaylistIds,isDeviceLibrarySource} from './usb-devices.js?v=88e0687b343dbe25';
-import {createTrackQueue} from './track-updates.js?v=88e0687b343dbe25';
-import {editTrackHotCue} from './track-hotcues.js?v=88e0687b343dbe25';
-import {installFileDrop,isAudioFile} from './file-drop.js?v=88e0687b343dbe25';
-import {PreviewPlayer} from './preview-player.js?v=88e0687b343dbe25';
-import {sortLibraryTracks} from './library-sort.js?v=88e0687b343dbe25';
-import {LIBRARY_COLUMNS,normalizeLibraryColumns,libraryColumnText} from './library-columns.js?v=88e0687b343dbe25';
-import {AudioBufferCache} from './audio-buffer-cache.js?v=88e0687b343dbe25';
-import {WaveformCache} from './waveform-cache.js?v=88e0687b343dbe25';
-import {SelectedWaveformLoader} from './waveform-selection.js?v=88e0687b343dbe25';
-import {drawWaveform,getWaveformWindow,timeAtWaveformX,waveformBeats,waveformBeatPosition} from './waveform-view.js?v=88e0687b343dbe25';
-import {indexFileList,indexDirectory,createSourceIndex,databaseCandidates,createLibraryReader} from './library-source.js?v=88e0687b343dbe25';
-import {cacheSourceLibrary} from './source-import.js?v=88e0687b343dbe25';
-import {parseRekordboxXml} from './rekordbox-import.js?v=88e0687b343dbe25';
-import {findImportedAudio,audioPeaks,tempoAt,advanceBeats,relinkMetadata} from './import-audio.js?v=88e0687b343dbe25';
+import {installMotion} from './ui-motion.js?v=b48f446ea6c7f1bb';
+import {createAnalysisInput} from './analysis-input.js?v=b48f446ea6c7f1bb';
+import {isPcmFileResource} from './audio-resource.js?v=b48f446ea6c7f1bb';
+import {analyzeAudioResource,audioResourcePeaks} from './audio-resource-analysis.js?v=b48f446ea6c7f1bb';
+import {bindTouchSlider} from './touch-slider.js?v=b48f446ea6c7f1bb';
+import {bindPlatterGesture} from './platter-gesture.js?v=b48f446ea6c7f1bb';
+import {AudioEngine} from './audio-engine.js?v=b48f446ea6c7f1bb';
+import {MappingManager} from './mappings.js?v=b48f446ea6c7f1bb';
+import {installDeckMidiLearn} from './deck-midi-learn.js?v=b48f446ea6c7f1bb';
+import {openLibrary} from './library-store.js?v=b48f446ea6c7f1bb';
+import {nativeUSBAvailable,openNativeUSB,importNativeUSB,writeNativeHotCues,exportNativeUSB} from './native-usb-library.js?v=b48f446ea6c7f1bb';
+import {USBDeviceMonitor,sourcePlaylistIds,isDeviceLibrarySource} from './usb-devices.js?v=b48f446ea6c7f1bb';
+import {createTrackQueue} from './track-updates.js?v=b48f446ea6c7f1bb';
+import {editTrackHotCue} from './track-hotcues.js?v=b48f446ea6c7f1bb';
+import {installFileDrop,isAudioFile} from './file-drop.js?v=b48f446ea6c7f1bb';
+import {PreviewPlayer} from './preview-player.js?v=b48f446ea6c7f1bb';
+import {sortLibraryTracks} from './library-sort.js?v=b48f446ea6c7f1bb';
+import {LIBRARY_COLUMNS,normalizeLibraryColumns,libraryColumnText} from './library-columns.js?v=b48f446ea6c7f1bb';
+import {AudioBufferCache} from './audio-buffer-cache.js?v=b48f446ea6c7f1bb';
+import {WaveformCache} from './waveform-cache.js?v=b48f446ea6c7f1bb';
+import {SelectedWaveformLoader} from './waveform-selection.js?v=b48f446ea6c7f1bb';
+import {drawWaveform,getWaveformWindow,timeAtWaveformX,waveformBeats,waveformBeatPosition} from './waveform-view.js?v=b48f446ea6c7f1bb';
+import {indexFileList,indexDirectory,createSourceIndex,databaseCandidates,createLibraryReader} from './library-source.js?v=b48f446ea6c7f1bb';
+import {cacheSourceLibrary} from './source-import.js?v=b48f446ea6c7f1bb';
+import {parseRekordboxXml} from './rekordbox-import.js?v=b48f446ea6c7f1bb';
+import {findImportedAudio,audioPeaks,tempoAt,advanceBeats,relinkMetadata} from './import-audio.js?v=b48f446ea6c7f1bb';
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -569,7 +569,7 @@ function analyze(buffer,onProgress=()=>{}){
 }
 function analyzeInput(samples,sampleRate){
   return new Promise((resolve,reject)=>{
-    if(!worker){worker=new Worker(new URL('./analysis-worker.js?v=88e0687b343dbe25',import.meta.url),{type:'module'});worker.onmessage=({data})=>{const entry=pendingAnalysis.get(data.id);if(!entry)return;pendingAnalysis.delete(data.id);clearTimeout(entry.timer);data.error?entry.reject(new Error(data.error)):entry.resolve(data.result);};worker.onerror=()=>{for(const entry of pendingAnalysis.values()){clearTimeout(entry.timer);entry.reject(new Error('解析処理を開始できませんでした。ページを再読み込みしてください。'));}pendingAnalysis.clear();worker.terminate();worker=null;};}
+    if(!worker){worker=new Worker(new URL('./analysis-worker.js?v=b48f446ea6c7f1bb',import.meta.url),{type:'module'});worker.onmessage=({data})=>{const entry=pendingAnalysis.get(data.id);if(!entry)return;pendingAnalysis.delete(data.id);clearTimeout(entry.timer);data.error?entry.reject(new Error(data.error)):entry.resolve(data.result);};worker.onerror=()=>{for(const entry of pendingAnalysis.values()){clearTimeout(entry.timer);entry.reject(new Error('解析処理を開始できませんでした。ページを再読み込みしてください。'));}pendingAnalysis.clear();worker.terminate();worker=null;};}
     const id=++analysisId;const timer=setTimeout(()=>{pendingAnalysis.delete(id);reject(new Error('解析処理が応答しません。もう一度お試しください。'));},90000);
     pendingAnalysis.set(id,{resolve,reject,timer});worker.postMessage({id,samples,sampleRate},[samples.buffer]);
   });

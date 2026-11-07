@@ -3,8 +3,8 @@
  * This bounded subset parser deliberately has no DTD, external entity, network,
  * script or processing-instruction support. Works in browsers and Node alike.
  */
-import {validateLibrarySnapshot} from './library-store.js?v=88e0687b343dbe25';
-import {parseRekordboxLocation} from './rekordbox-model.js?v=88e0687b343dbe25';
+import {validateLibrarySnapshot} from './library-store.js?v=b48f446ea6c7f1bb';
+import {parseRekordboxLocation} from './rekordbox-model.js?v=b48f446ea6c7f1bb';
 const fail = message => { throw new Error(message); };
 const own = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
 const validCodepoint = value => value === 9 || value === 10 || value === 13 || (value >= 32 && value <= 0xD7FF) || (value >= 0xE000 && value <= 0xFFFD) || (value >= 0x10000 && value <= 0x10FFFF);

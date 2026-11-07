@@ -1,7 +1,7 @@
-import {normalizeRekordboxMetadata, normalizeFolderPath, parseRekordboxLocation} from './rekordbox-model.js?v=88e0687b343dbe25';
-import {withOwnedAudio, readStoredAudio, deleteAudioChunks} from './audio-chunk-store.js?v=88e0687b343dbe25';
-import {isAudioReadSource, ownAudioReadSource} from './audio-read-source.js?v=88e0687b343dbe25';
-import {normalizeTrackMetadata} from './track-metadata.js?v=88e0687b343dbe25';
+import {normalizeRekordboxMetadata, normalizeFolderPath, parseRekordboxLocation} from './rekordbox-model.js?v=b48f446ea6c7f1bb';
+import {withOwnedAudio, readStoredAudio, deleteAudioChunks} from './audio-chunk-store.js?v=b48f446ea6c7f1bb';
+import {isAudioReadSource, ownAudioReadSource} from './audio-read-source.js?v=b48f446ea6c7f1bb';
+import {normalizeTrackMetadata, MAX_TRACK_TEXT_LENGTH} from './track-metadata.js?v=b48f446ea6c7f1bb';
 /**
  * DECKFLOW local library. Metadata and encoded audio live in separate stores,
  * so listing a large library does not read every audio Blob into memory.
@@ -71,8 +71,8 @@ function normalizeTrack(input) {
   if (typeof addedAt === 'string') addedAt = Date.parse(addedAt);
   return {
     id: identifier(track.id, '曲ID'),
-    title: text(track.title, '曲名', 180),
-    artist: text(track.artist ?? '', 'アーティスト名', 180, true),
+    title: text(track.title, '曲名', MAX_TRACK_TEXT_LENGTH),
+    artist: text(track.artist ?? '', 'アーティスト名', MAX_TRACK_TEXT_LENGTH, true),
     bpm,
     duration,
     beatOffset: finite(track.beatOffset ?? 0, '拍の開始位置', 0, duration),

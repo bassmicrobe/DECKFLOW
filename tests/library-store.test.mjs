@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {openLibrary, validateLibrarySnapshot} from '../dist/library-store.js';
+import {MAX_TRACK_TEXT_LENGTH} from '../dist/track-metadata.js';
 
 const track = (patch = {}) => ({
   id: 'track-1', title: 'Night Walk', artist: 'DECKFLOW', bpm: 128,
@@ -33,6 +34,24 @@ test('snapshot round trip retains cue/playlist order without trusting extra fiel
   assert.equal(result.tracks[0].extra, undefined);
   result.tracks[0].hotcues[0] = 99;
   assert.equal(original.tracks[0].hotcues[0], 1);
+});
+
+test('long imported titles and artist credits retain their full text on edits and snapshot reloads', async () => {
+  await withoutIndexedDB(async () => {
+    const title = '題'.repeat(MAX_TRACK_TEXT_LENGTH), artist = 'A'.repeat(MAX_TRACK_TEXT_LENGTH);
+    const store = await openLibrary();
+    await store.putTrack(track({title,artist,comments:'note\r\nnext\tline'}), new Blob(['original']));
+    await store.updateTrackDetails('track-1', {title,artist,bpm:64});
+    const restored = validateLibrarySnapshot(JSON.stringify(snapshot({tracks:await store.getTracks()})));
+    assert.equal(restored.tracks[0].title, title); assert.equal(restored.tracks[0].artist, artist);
+    assert.equal(restored.tracks[0].comments, 'note\r\nnext\tline');
+    assert.equal(await (await store.getAudio('track-1')).text(), 'original');
+    for (const field of ['title','artist']) {
+      await assert.rejects(store.putTrack(track({[field]:'x'.repeat(MAX_TRACK_TEXT_LENGTH + 1)})), /1024/);
+      for (const character of ['\0','\n','\r','\t','\x7f']) await assert.rejects(store.putTrack(track({[field]:`bad${character}text`})), /テキスト/);
+    }
+    assert.equal((await store.getTracks())[0].title, title); assert.equal((await store.getTracks())[0].artist, artist);
+  });
 });
 
 test('snapshot rejects broken IDs, unsupported formats, dangling and duplicate playlist references', () => {

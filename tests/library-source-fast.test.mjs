@@ -14,7 +14,7 @@ const sourceEntry=parsed.entries[0];
 const error=name=>new DOMException(name,name);
 
 function tree({name='USB',insensitive=false,enumerate=false}={}){
-  const calls=[],reads=[],enumerations=[],settings={before:null,active:0,maxActive:0};
+  const calls=[],reads=[],enumerations=[],settings={before:null,beforeEnumeration:null,includeChild:()=>true,yielded:0,active:0,maxActive:0};
   const key=value=>insensitive?value.normalize('NFC').toLowerCase():value;
   const make=(name,kind,path,bytes)=>{
     const node={name,kind,path,children:new Map(),bytes,
@@ -22,7 +22,10 @@ function tree({name='USB',insensitive=false,enumerate=false}={}){
       async isSameEntry(other){return node===other;},
       async getDirectoryHandle(name,options){return access(name,'directory',options);},
       async getFileHandle(name,options){return access(name,'file',options);},
-      async *values(){enumerations.push(path);assert.ok(enumerate,'targeted lookup must not enumerate folders');yield* node.children.values();},
+      async *values(){
+        enumerations.push(path);assert.ok(enumerate,'targeted lookup must not enumerate folders');await settings.beforeEnumeration?.(path);
+        for(const child of node.children.values())if(settings.includeChild(child)){settings.yielded++;yield child;}
+      },
     };
     async function access(name,kind,options){
       assert.deepEqual(options,{create:false});
@@ -159,6 +162,76 @@ test('unsafe DB paths are rejected before opening any referenced children',async
     await assert.rejects(index.prepareEntries([{sourcePath:'/Contents/valid.wav'},{sourcePath}]),/パス/);
     assert.equal(t.calls.length,before);
   }
+});
+
+const rejectedName=()=>new TypeError("Failed to execute 'getDirectoryHandle' on 'FileSystemDirectoryHandle': Name is not allowed.");
+const rejectFormatName=path=>{if(/\p{Cf}/u.test(path.split('/').at(-1)))throw rejectedName();};
+
+test('browser-rejected legal names use exact, cached parent enumeration without rewriting invisible characters',async()=>{
+  const t=tree({enumerate:true});t.add('PIONEER/rekordbox/export.pdb',pdb);
+  const references=[{sourcePath:'/Contents/Ar\u200btist/first.wav'},{sourcePath:'/Contents/Al\u200ebum/Take\u200b.wav'}];
+  for(const entry of references)t.add(entry.sourcePath);
+  t.add('Contents/Artist/first.wav');t.add('Contents/Album/Take.wav');t.add('Backups/private.wav');
+  const index=await indexDirectory(t.root);t.settings.before=rejectFormatName;
+  const result=await index.prepareEntries(references);
+  assert.deepEqual(result.warnings,[]);
+  for(const entry of references)assert.equal(index.find(entry.sourcePath).path,'USB'+entry.sourcePath);
+  assert.equal(index.find('/Contents/Artist/first.wav'),null);assert.equal(index.find('/Contents/Album/Take.wav'),null);
+  assert.equal(t.enumerations.filter(path=>path==='Contents').length,1);
+  assert.deepEqual(new Set(t.enumerations),new Set(['Contents','Contents/Al\u200ebum']));
+  assert.equal(t.reads.length,0);assert.equal(t.calls.some(call=>call.path.startsWith('Backups')),false);
+});
+
+test('browser-hidden names retain every track, cue and playlist while other audio imports normally',async()=>{
+  const t=tree({enumerate:true});t.add('PIONEER/rekordbox/export.pdb',pdb);
+  const entries=[{trackId:'blocked-track',sourcePath:'/Contents/Ar\u200btist/first.wav'},
+    {trackId:'good-track',sourcePath:'/Contents/Normal/second.wav'}];
+  for(const entry of entries)t.add(entry.sourcePath,new Uint8Array(882044));
+  const tracks=entries.map((entry,i)=>({...parsed.tracks[0],id:entry.trackId,title:`Synthetic ${i}`,cue:1.25,hotcues:[1.25,...Array(7).fill(null)]}));
+  const playlists=[{id:'retained-playlist',name:'Retained',trackIds:tracks.map(track=>track.id)}];
+  const index=await indexDirectory(t.root);t.settings.before=rejectFormatName;t.settings.includeChild=child=>!/\p{Cf}/u.test(child.name);
+  const library=await openLibrary(),result=await cacheSourceLibrary({library,index,candidate:databaseCandidates(index)[0],
+    reader:{async read(){return {tracks,entries,playlists,warnings:[]};}}});
+  assert.equal(result.copied,1);assert.equal(result.missing,1);
+  assert.equal(result.warnings.filter(message=>message.includes('ブラウザが許可しない')).length,1);
+  assert.equal(result.warnings.some(message=>message.includes('Ar\u200btist')),false);
+  const saved=await library.getTracks();assert.equal(saved.length,2);
+  assert.deepEqual(saved.find(track=>track.id==='blocked-track').hotcues,tracks[0].hotcues);
+  assert.equal(saved.find(track=>track.id==='blocked-track').audioMissing,true);
+  assert.equal(saved.find(track=>track.id==='good-track').audioMissing,false);
+  assert.deepEqual((await library.getPlaylists())[0].trackIds,playlists[0].trackIds);
+  assert.equal(index.find(entries[0].sourcePath),null);
+});
+
+test('browser name fallback has a strict one-parent scan bound shared by rejected references',async()=>{
+  const t=tree({enumerate:true});t.add('PIONEER/rekordbox/export.pdb',pdb);
+  for(let i=0;i<4200;i++)t.add(`Contents/Folder${i}/unrelated.wav`);
+  const references=[{sourcePath:'/Contents/Late\u200b/one.wav'},{sourcePath:'/Contents/Later\u200e/two.wav'}];
+  for(const entry of references)t.add(entry.sourcePath);
+  t.add('Contents/normal.wav');
+  const index=await indexDirectory(t.root);t.settings.before=rejectFormatName;
+  const result=await index.prepareEntries([...references,{sourcePath:'/Contents/normal.wav'}]);
+  assert.deepEqual(t.enumerations,['Contents']);assert.equal(t.settings.yielded,4096);
+  assert.equal(result.warnings.length,1);assert.match(result.warnings[0],/^2 件.*確認上限/);
+  assert.ok(index.find('/Contents/normal.wav'));for(const entry of references)assert.equal(index.find(entry.sourcePath),null);
+  assert.equal(t.calls.some(call=>/Folder\d+/.test(call.path)),false);
+});
+
+test('name fallback does not swallow permissions, I/O, unrelated TypeError or cancellation',async()=>{
+  for(const failure of [error('NotAllowedError'),error('NotReadableError'),new TypeError('different failure')]){
+    const t=tree({enumerate:true});t.add('PIONEER/rekordbox/export.pdb',pdb);t.add('Contents/Ar\u200btist/first.wav');
+    const index=await indexDirectory(t.root);t.settings.before=rejectFormatName;t.settings.beforeEnumeration=()=>{throw failure;};
+    await assert.rejects(index.prepareEntries([{sourcePath:'/Contents/Ar\u200btist/first.wav'}]),failure);
+    assert.equal(index.entries.size,1);
+  }
+  const t=tree({enumerate:true});t.add('PIONEER/rekordbox/export.pdb',pdb);t.add('Contents/Ar\u200btist/first.wav');
+  const index=await indexDirectory(t.root),controller=new AbortController();t.settings.before=rejectFormatName;t.settings.beforeEnumeration=()=>controller.abort();
+  await assert.rejects(index.prepareEntries([{sourcePath:'/Contents/Ar\u200btist/first.wav'}],{signal:controller.signal}),{name:'AbortError'});
+  assert.equal(index.entries.size,1);
+  t.settings.beforeEnumeration=null;t.settings.before=()=>{throw new TypeError('different failure');};
+  const scanned=t.enumerations.length;
+  await assert.rejects(index.prepareEntries([{sourcePath:'/Contents/Ar\u200btist/first.wav'}]),/different failure/);
+  assert.equal(t.enumerations.length,scanned);
 });
 
 test('canonical case aliases share one file path so distinct DB originals remain ambiguous',async()=>{

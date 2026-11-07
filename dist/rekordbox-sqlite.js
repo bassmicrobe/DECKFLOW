@@ -1,7 +1,8 @@
 /** Read-only rekordbox 6/7 master.db and OneLibrary importer, usable in a Worker. */
-import {decrypt, DEFAULT_KEY, MASTER_KEY} from './vendor/onelibrary/sqlcipher.js?v=88e0687b343dbe25';
-import {SQLiteDatabase} from './vendor/onelibrary/sqlite.js?v=88e0687b343dbe25';
-import {validateLibrarySnapshot} from './library-store.js?v=88e0687b343dbe25';
+import {decrypt, DEFAULT_KEY, MASTER_KEY} from './vendor/onelibrary/sqlcipher.js?v=b48f446ea6c7f1bb';
+import {SQLiteDatabase} from './vendor/onelibrary/sqlite.js?v=b48f446ea6c7f1bb';
+import {validateLibrarySnapshot} from './library-store.js?v=b48f446ea6c7f1bb';
+import {MAX_TRACK_TEXT_LENGTH} from './track-metadata.js?v=b48f446ea6c7f1bb';
 
 const fail = message => { throw new Error(message); };
 const MAX_DATABASE = 128 * 1024 * 1024;
@@ -151,10 +152,13 @@ export async function parseRekordboxDatabase(bytes,{sourceId = 'rekordbox',kind,
     const artist = row[s.artist] == null ? null : artists.get(String(row[s.artist]));
     const trackId = `rdb-${hash(`${source}\0track\0${id}`)}`;
     const location = 'file://localhost' + sourcePath.split('/').map(encodeURIComponent).join('/');
-    const title = text(row[s.title] || filename,'曲名',180);
+    const title = text(row[s.title] || filename,'曲名',MAX_TRACK_TEXT_LENGTH);
     const size = row[s.size] == null || row[s.size] === 0 ? null : number(row[s.size],'音源サイズ',0,Number.MAX_SAFE_INTEGER);
     if (size != null && !Number.isSafeInteger(size)) fail('音源サイズは整数で指定してください。');
-    const track = {id:trackId,title,artist:text(artist?.[s.artistName] ?? '','アーティスト名',180),bpm,duration,
+    const rawYear = row[master?'ReleaseYear':'releaseYear'] ?? 0;
+    const year = Number.isSafeInteger(rawYear) && rawYear >= 0 && rawYear <= 9999 ? rawYear : 0;
+    if (year !== rawYear) warnings.push(`曲ID ${id} のリリース年が範囲外のため未設定にしました。`);
+    const track = {id:trackId,title,artist:text(artist?.[s.artistName] ?? '','アーティスト名',MAX_TRACK_TEXT_LENGTH),bpm,duration,
       filename,beatOffset:0,cue:0,hotcues:Array(8).fill(null),peaks:[],confidence:0,audioMissing:true,addedAt:0,
       fingerprint:`${source}:${id}`,tempos:[],positionMarks:[],rekordbox:{trackId:id,location,size},
       album:display(albums,row[master?'AlbumID':'album_id']), genre:display(genres,row[master?'GenreID':'genre_id']),
@@ -162,7 +166,7 @@ export async function parseRekordboxDatabase(bytes,{sourceId = 'rekordbox',kind,
       composer:display(artists,row[master?'ComposerID':'artist_id_composer']), remixer:display(artists,row[master?'RemixerID':'artist_id_remixer']),
       comments:row[master?'Commnt':'djComment'] ?? '', rating:row[master?'Rating':'rating'] ?? 0,
       bitRate:row[master?'BitRate':'bitrate'] ?? 0, sampleRate:row[master?'SampleRate':'samplingRate'] ?? 0,
-      bitDepth:row[master?'BitDepth':'bitDepth'] ?? 0, year:row[master?'ReleaseYear':'releaseYear'] ?? 0,
+      bitDepth:row[master?'BitDepth':'bitDepth'] ?? 0, year,
       trackNumber:row[master?'TrackNo':'trackNo'] ?? 0, discNumber:row[master?'DiscNo':'discNo'] ?? 0,
       playCount:row[master?'DJPlayCount':'djPlayCount'] ?? 0, dateAdded:row[master?'DateAdded':'dateAdded'] ?? '',
       dateCreated:row[master?'DateCreated':'dateCreated'] ?? '', dateModified:row[master?'updated_at':'dateModified'] ?? ''};

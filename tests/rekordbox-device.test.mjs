@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {parseDeviceDatabase, parseDeviceAnalysis, mergeDeviceAnalysis, devicePath} from '../dist/rekordbox-device.js';
-import {validateLibrarySnapshot} from '../dist/library-store.js';
+import {openLibrary, validateLibrarySnapshot} from '../dist/library-store.js';
+import {MAX_TRACK_TEXT_LENGTH} from '../dist/track-metadata.js';
 
 const fixture = name => readFile(new URL(`./fixtures/device-library/${name}`, import.meta.url));
 const pdb = await fixture('export.pdb');
@@ -17,6 +18,24 @@ function dataPage(bytes, type) {
   let offset = tableStart(bytes, type);
   while (bytes[offset + 27] & 0x40) offset = bytes.readUInt32LE(offset + 12) * 4096;
   return offset;
+}
+// Only mutate the independent synthetic fixture, never a user library. Its
+// track and artist tables each have one row with room for longer strings.
+function appendString(bytes, table, index, value, encoding = 'utf16') {
+  const page = dataPage(bytes, table);
+  assert.equal(bytes.readUInt16LE(page + 24) & 0x1fff, 1);
+  const row = page + 40 + bytes.readUInt16LE(page + 4096 - 6);
+  const payload = Buffer.from(value, encoding === 'utf16' ? 'utf16le' : 'utf8');
+  const header = Buffer.alloc(encoding === 'short' ? 1 : 4);
+  if (encoding === 'short') {
+    assert.ok(payload.length <= 126); header[0] = ((payload.length + 1) << 1) | 1;
+  } else { header[0] = encoding === 'utf16' ? 0x90 : 0x40; header.writeUInt16LE(payload.length + 4, 1); }
+  const encoded = Buffer.concat([header, payload]);
+  const used = bytes.readUInt16LE(page + 30), at = page + 40 + used;
+  assert.ok(at + encoded.length <= page + 4090);
+  encoded.copy(bytes, at); bytes.writeUInt16LE(used + encoded.length, page + 30);
+  if (table === 0) bytes.writeUInt16LE(at - row, row + 94 + index * 2);
+  else { bytes.writeUInt16LE(0x64, row); bytes.writeUInt16LE(at - row, row + 10); }
 }
 function section(tag, header, body) {
   const bytes = Buffer.alloc(12 + body.length); bytes.write(tag); bytes.writeUInt32BE(header, 4); bytes.writeUInt32BE(bytes.length, 8); body.copy(bytes, 12); return bytes;
@@ -41,6 +60,67 @@ test('pinned baken fixture imports Japanese metadata, folder/playlist order and 
   assert.deepEqual(result.playlists.find(item => item.name === 'Warmup').trackIds, [track.id]);
   assert.deepEqual(result.playlists.find(item => item.name === 'Empty').trackIds, []);
   assert.deepEqual(result.warnings, []); validateLibrarySnapshot(result);
+});
+
+test('long PDB credits and titles survive local cache and JSON snapshot round trips without truncation', async () => {
+  const changed = Buffer.from(pdb), artist = 'Synthetic Artist / '.repeat(40), title = '題'.repeat(MAX_TRACK_TEXT_LENGTH);
+  const comments = 'Opening\r\nNext line\tMix note';
+  appendString(changed, 2, 0, artist, 'long');
+  appendString(changed, 0, 17, title);
+  appendString(changed, 0, 16, comments);
+  const result = parseDeviceDatabase(changed, {sourceId:'long-text-fixture'});
+  assert.equal(result.tracks[0].title, title); assert.equal(result.tracks[0].artist, artist);
+  assert.equal(result.tracks[0].comments, comments);
+  const library = await openLibrary();
+  await library.importTracks(result.tracks, result.playlists);
+  const cached = {format:'deckflow.library',version:1,tracks:await library.getTracks(),playlists:await library.getPlaylists()};
+  const restored = validateLibrarySnapshot(JSON.stringify(cached));
+  assert.deepEqual(restored.tracks, result.tracks); assert.deepEqual(restored.playlists, result.playlists);
+});
+
+test('PDB comments preserve CR, LF and tabs in short, long and UTF-16 strings only', () => {
+  for (const encoding of ['short','long','utf16']) {
+    const changed = Buffer.from(pdb), comments = 'DJ note\r\nnext line\tvalue\nlast';
+    appendString(changed, 0, 16, comments, encoding);
+    assert.equal(parseDeviceDatabase(changed).tracks[0].comments, comments, encoding);
+    for (const index of [12, 14, 17, 20]) {
+      const invalid = Buffer.from(pdb);
+      appendString(invalid, 0, index, index === 14 || index === 20 ? '/Contents/bad\npath.wav' : 'bad\ntext', encoding);
+      assert.throws(() => parseDeviceDatabase(invalid), /文字/, `${encoding}, index ${index}`);
+    }
+    for (const forbidden of ['\0','\x01','\x08','\x0b','\x0c','\x0e','\x1f','\x7f']) {
+      const invalid = Buffer.from(pdb); appendString(invalid, 0, 16, `note${forbidden}value`, encoding);
+      assert.throws(() => parseDeviceDatabase(invalid), /コメント/, `${encoding}, control ${forbidden.charCodeAt(0)}`);
+    }
+  }
+});
+
+test('PDB metadata keeps bounded lengths and rejects invalid artist controls', () => {
+  for (const [table, index, label] of [[0,17,'曲名'],[2,0,'アーティスト名']]) {
+    const changed = Buffer.from(pdb); appendString(changed, table, index, 'a'.repeat(MAX_TRACK_TEXT_LENGTH + 1), 'long');
+    assert.throws(() => parseDeviceDatabase(changed), new RegExp(`${label}.*1024`));
+  }
+  const changed = Buffer.from(pdb); appendString(changed, 2, 0, 'Artist\tCredit', 'short');
+  assert.throws(() => parseDeviceDatabase(changed), /アーティスト名/);
+});
+
+test('an invalid optional PDB release year warns without dropping tracks or playlists', () => {
+  const changed = Buffer.from(pdb), page = dataPage(changed, 0), used = changed.readUInt16LE(page + 30);
+  const row = page + 40, second = row + used;
+  changed.copy(changed, second, row, second);
+  changed.writeUInt16LE(2, page + 24); changed.writeUInt16LE(used * 2, page + 30);
+  changed.writeUInt16LE(used, page + 4096 - 8); changed.writeUInt16LE(3, page + 4096 - 4);
+  changed.writeUInt32LE(changed.readUInt32LE(row + 72) + 1, second + 72);
+  changed.writeUInt16LE(2019, row + 80); changed.writeUInt16LE(2026, second + 80);
+  const before = parseDeviceDatabase(changed);
+  changed.writeUInt16LE(12000, row + 80);
+  const after = parseDeviceDatabase(changed);
+  assert.equal(after.tracks.length, 2); assert.equal(after.tracks[0].year, 0); assert.equal(after.tracks[1].year, 2026);
+  assert.deepEqual(after.tracks.map(({year, ...track}) => track), before.tracks.map(({year, ...track}) => track));
+  assert.deepEqual(after.playlists, before.playlists); assert.deepEqual(after.entries, before.entries);
+  assert.equal(after.warnings.length, before.warnings.length + 1);
+  assert.match(after.warnings.at(-1), /曲ID \d+ のリリース年.*未設定/);
+  assert.throws(() => validateLibrarySnapshot({...after, tracks:[{...after.tracks[0],year:12000}]}), /数値/);
 });
 
 test('track identity is stable on repeat and isolated between devices even when raw IDs are identical', () => {

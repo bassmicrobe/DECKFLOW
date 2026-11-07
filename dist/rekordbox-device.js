@@ -21,8 +21,9 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-import {validateLibrarySnapshot} from './library-store.js?v=88e0687b343dbe25';
-import {parseRekordboxLocation} from './rekordbox-model.js?v=88e0687b343dbe25';
+import {validateLibrarySnapshot} from './library-store.js?v=b48f446ea6c7f1bb';
+import {parseRekordboxLocation} from './rekordbox-model.js?v=b48f446ea6c7f1bb';
+import {MAX_TRACK_TEXT_LENGTH} from './track-metadata.js?v=b48f446ea6c7f1bb';
 
 const PAGE = 4096, MAX_DATABASE = 128 * 1024 * 1024, MAX_ANALYSIS = 32 * 1024 * 1024;
 const fail = (detail = '') => { throw new Error(`Device Libraryを読み取れません。${detail}`); };
@@ -38,24 +39,25 @@ const tagAt = (bytes, offset = 0) => String.fromCharCode(...bytes.subarray(offse
 const utf8 = new TextDecoder('utf-8', {fatal: true});
 const utf16le = new TextDecoder('utf-16le', {fatal: true});
 const utf16be = new TextDecoder('utf-16be', {fatal: true});
-function text(value, max = 8192, empty = true) {
-  if (typeof value !== 'string' || value.length > max || control.test(value) || (!empty && !value.trim())) fail('文字列の長さ・文字を確認してください。');
+function text(value, max = 8192, empty = true, {multiline = false, label = '文字列'} = {}) {
+  const forbidden = multiline ? /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/ : control;
+  if (typeof value !== 'string' || value.length > max || forbidden.test(value) || (!empty && !value.trim())) fail(`${label}の長さ・文字を確認してください（${max}文字以内）。`);
   return value;
 }
 function decode(decoder, bytes) {
   try { return decoder.decode(bytes); } catch { fail('文字コードが正しくありません。'); }
 }
-function deviceString(bytes, at) {
+function deviceString(bytes, at, options) {
   if (!Number.isInteger(at) || at < 0 || at >= bytes.length) fail('文字列の位置が不正です。');
   const flag = bytes[at];
   if (flag & 1) {
     const size = flag >> 1;
     if (size < 1 || at + size > bytes.length) fail('文字列が途中で切れています。');
-    return text(decode(utf8, bytes.subarray(at + 1, at + size)));
+    return text(decode(utf8, bytes.subarray(at + 1, at + size)), 8192, true, options);
   }
   const size = u16(bytes, at + 1);
   if (size < 4 || at + size > bytes.length || ![0x40, 0x90].includes(flag) || (flag === 0x90 && size % 2)) fail('文字列の形式が未対応または破損しています。');
-  return text(decode(flag === 0x90 ? utf16le : utf8, bytes.subarray(at + 4, at + size)));
+  return text(decode(flag === 0x90 ? utf16le : utf8, bytes.subarray(at + 4, at + size)), 8192, true, options);
 }
 
 /** Path relative to the selected device root. Never use it as a URL to fetch. */
@@ -125,14 +127,14 @@ export function parseDeviceDatabase(bytes, {sourceId = 'device'} = {}) {
   for (const row of tableRows(bytes, tables, 2, 10000)) {
     const subtype = u16(row, 0), id = u32(row, 4);
     if (![0x60, 0x64].includes(subtype) || !id || artists.has(id)) fail('アーティストの形式が不正です。');
-    artists.set(id, text(deviceString(row, subtype & 4 ? u16(row, 10) : row[9]), 180));
+    artists.set(id, text(deviceString(row, subtype & 4 ? u16(row, 10) : row[9], {label:'アーティスト名'}), MAX_TRACK_TEXT_LENGTH, true, {label:'アーティスト名'}));
   }
   const named = (type, idAt, nameAt) => new Map([...tableRows(bytes, tables, type, 10000)].map(row => [u32(row, idAt), deviceString(row, typeof nameAt === 'function' ? nameAt(row) : nameAt)]));
   const genres = named(1, 0, 4), albums = named(3, 12, row => row[21]), keys = named(5, 0, 8), labels = named(4, 0, 4);
   const tracks = [], entries = [], trackIds = new Map(), namespace = hash(sourceId);
   for (const row of tableRows(bytes, tables, 0, 10000)) {
     if (row.length < 136 || u16(row, 0) !== 0x24) fail('対応していない楽曲行です。');
-    const string = i => { const at = u16(row, 94 + i * 2); if (at < 136) fail('楽曲の文字列位置が不正です。'); return deviceString(row, at); };
+    const string = i => { const at = u16(row, 94 + i * 2); if (at < 136) fail('楽曲の文字列位置が不正です。'); return deviceString(row, at, i === 16 ? {multiline:true,label:'コメント'} : undefined); };
     const rawId = u32(row, 72), path = devicePath(string(20)), analysisPath = devicePath(string(14), {empty: true});
     if (!rawId || trackIds.has(rawId)) fail('曲IDが重複しています。');
     const duration = u16(row, 84), rawBpm = u32(row, 56) / 100;
@@ -141,15 +143,17 @@ export function parseDeviceDatabase(bytes, {sourceId = 'device'} = {}) {
     const artistId = u32(row, 68);
     if (artistId && !artists.has(artistId)) warnings.push(`「${filename}」のアーティスト情報が見つかりません。`);
     if (rawBpm && (rawBpm < 30 || rawBpm > 300)) warnings.push(`「${filename}」のBPMが対応範囲外のため未設定にしました。`);
+    const rawYear = u16(row,80), year = rawYear <= 9999 ? rawYear : 0;
+    if (year !== rawYear) warnings.push(`曲ID ${rawId} のリリース年が範囲外のため未設定にしました。`);
     const location = 'file://localhost' + path.split('/').map(encodeURIComponent).join('/');
-    const track = {id, title: text(string(17) || filename, 180, false), artist: artists.get(artistId) ?? '',
+    const track = {id, title: text(string(17) || filename, MAX_TRACK_TEXT_LENGTH, false, {label:'曲名'}), artist: artists.get(artistId) ?? '',
       bpm: rawBpm >= 30 && rawBpm <= 300 ? rawBpm : null, duration, beatOffset: 0, cue: 0,
       hotcues: Array(8).fill(null), filename, fingerprint: '', addedAt: 0, peaks: [], confidence: 0,
       album:albums.get(u32(row,64)) || '', genre:genres.get(u32(row,60)) || '', key:keys.get(u32(row,32)) || '',
       label:labels.get(u32(row,40)) || '', composer:artists.get(u32(row,12)) || '', remixer:artists.get(u32(row,44)) || '',
       mix:string(12), comments:string(16), dateAdded:string(15), dateCreated:string(10),
       sampleRate:u32(row,8), bitRate:u32(row,48), bitDepth:u16(row,82), rating:Math.min(5,row[89]),
-      trackNumber:u32(row,52), discNumber:u16(row,76), playCount:u16(row,78), year:u16(row,80),
+      trackNumber:u32(row,52), discNumber:u16(row,76), playCount:u16(row,78), year,
       audioMissing: true, rekordbox: {trackId: String(rawId), location, size: u32(row, 16) || null}};
     tracks.push(track); entries.push({trackId: id, sourcePath: path, analysisPath}); trackIds.set(rawId, id);
   }

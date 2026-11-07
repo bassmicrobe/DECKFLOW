@@ -1,8 +1,8 @@
 /** Lossless, local OneLibrary mutations. Existing SQLite rows are never
  * serialized through JS or rebuilt from the application's partial snapshot. */
-import initSqlJs from './vendor/sqlite-writer/sql-wasm.js?v=88e0687b343dbe25';
-import {EMPTY_SQLITE_BASE64, SCHEMA, DEFAULT_ROWS} from './vendor/sqlite-writer/template.js?v=88e0687b343dbe25';
-import {decrypt, encrypt, DEFAULT_KEY} from './vendor/onelibrary/sqlcipher.js?v=88e0687b343dbe25';
+import initSqlJs from './vendor/sqlite-writer/sql-wasm.js?v=b48f446ea6c7f1bb';
+import {EMPTY_SQLITE_BASE64, SCHEMA, DEFAULT_ROWS} from './vendor/sqlite-writer/template.js?v=b48f446ea6c7f1bb';
+import {decrypt, encrypt, DEFAULT_KEY} from './vendor/onelibrary/sqlcipher.js?v=b48f446ea6c7f1bb';
 
 const MAX_BYTES = 128 * 1024 * 1024;
 const fail = message => { throw new Error(`OneLibrary: ${message}`); };

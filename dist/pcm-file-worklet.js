@@ -1,4 +1,4 @@
-import {createPcmResamplerFromKernel} from './pcm-resampler.js?v=88e0687b343dbe25';
+import {createPcmResamplerFromKernel} from './pcm-resampler.js?v=b48f446ea6c7f1bb';
 
 /** Bounded PCM reader. At most six fixed-size pages live on the audio thread. */
 class PcmFileProcessor extends AudioWorkletProcessor {

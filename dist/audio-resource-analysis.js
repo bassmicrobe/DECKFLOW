@@ -1,5 +1,5 @@
-import {isPcmFileResource} from './audio-resource.js?v=88e0687b343dbe25';
-import {analyzeSamples} from './analysis.js?v=88e0687b343dbe25';
+import {isPcmFileResource} from './audio-resource.js?v=b48f446ea6c7f1bb';
+import {analyzeSamples} from './analysis.js?v=b48f446ea6c7f1bb';
 
 const PAGE_FRAMES = 32768;
 const PEAK_COUNT = 900;

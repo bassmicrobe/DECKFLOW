@@ -1,5 +1,5 @@
-import {databaseBytes, sourceDigest, sourceFileStamp, normalizeSourcePath} from './library-source.js?v=88e0687b343dbe25';
-import {isAudioFile} from './file-drop.js?v=88e0687b343dbe25';
+import {databaseBytes, sourceDigest, sourceFileStamp, normalizeSourcePath} from './library-source.js?v=b48f446ea6c7f1bb';
+import {isAudioFile} from './file-drop.js?v=b48f446ea6c7f1bb';
 const pause = () => new Promise(resolve=>setTimeout(resolve,0));
 const preparation = track => JSON.stringify({bpm:track.bpm,beatOffset:track.beatOffset||0,cue:track.cue||0,
   hotcues:track.hotcues??Array(8).fill(null),tempos:track.tempos??[],positionMarks:track.positionMarks??[]});
@@ -45,9 +45,9 @@ export async function cacheSourceLibrary({library,index,candidate,sources=[],sou
   const cached=previous?.cacheVersion===2 && previous?.digest===digest && previous?.parsed;
   let parsed=cached?previous.parsed:await reader.read('database',{kind:candidate.kind,bytes,sourceId:id,databaseKind:candidate.kind==='sqlite'?(candidate.path.toLowerCase().endsWith('/master.db')||candidate.path.toLowerCase()==='master.db'?'master':'device'):undefined},[bytes.buffer]);
   if (transformParsed) parsed=await transformParsed(structuredClone(parsed),{sourceId:id});
-  if(typeof index.prepareEntries==='function')await index.prepareEntries(parsed.entries,{signal,candidate,onProgress:(completed,total)=>{
+  const prepared=typeof index.prepareEntries==='function'?await index.prepareEntries(parsed.entries,{signal,candidate,onProgress:(completed,total)=>{
     onProgress(`音源・解析ファイルを確認 ${completed} / ${total}`,{phase:'files',completed,total});
-  }});
+  }}):null;
   onProgress('曲情報・プレイリストを読み込んでいます…',{phase:'metadata'});
   const incomingById=new Map(parsed.tracks.map(track=>[track.id,track]));
   signal?.throwIfAborted();
@@ -70,7 +70,7 @@ export async function cacheSourceLibrary({library,index,candidate,sources=[],sou
   // failed reference write must not leave orphan tracks before audio copying.
   const imported=await library.importTracks(parsed.tracks,parsed.playlists,source);
   for (const track of parsed.tracks) if (!existing.has(track.id)) existing.set(track.id,track);
-  const result={...imported,metadataCached:!!cached,copied:0,reused:0,missing:0,warnings:[...(parsed.warnings||[])]};
+  const result={...imported,metadataCached:!!cached,copied:0,reused:0,missing:0,warnings:[...(parsed.warnings||[]),...(prepared?.warnings||[])]};
   // Later cancellation keeps the registered source and completed tracks usable.
   try {
     await onMetadata();

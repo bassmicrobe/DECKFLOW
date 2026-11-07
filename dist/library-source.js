@@ -1,5 +1,6 @@
 /** Read-only access to user-selected library folders. No filesystem URLs are fetched. */
 const MAX_FILES = 100_000;
+const MAX_FALLBACK_CHILDREN = 4096;
 const RELEVANT = /(?:\.(?:xml|pdb|db|DAT|EXT|2EX|mp3|wav|aif|aiff|m4a|aac|flac|ogg)|\.db-wal)$/i;
 const fail = message => { throw new Error(message); };
 export function normalizeSourcePath(value) {
@@ -54,21 +55,54 @@ function childName(handle) {
   return name;
 }
 
+const browserRejectsName = error => error?.name === 'TypeError' && /(?:^|:\s*)Name is not allowed\.?$/.test(error.message);
+class UnavailableSourceName extends Error {
+  constructor(reason='blocked'){super('ブラウザでこのファイル名を読み取れません。');this.reason=reason;}
+}
+
 // A fresh resolver per operation keeps absent paths and revoked permissions from
-// leaking into later imports. It opens named children only; it never enumerates.
-function directoryResolver(root,signal) {
+// leaking into later imports. Only a browser name rejection permits a bounded,
+// one-level lookup in the already selected parent; names are never rewritten.
+function directoryResolver(root,signal,{allowNameFallback=false,onUnavailable=()=>{}}={}) {
   const rootName=childName(root),folders=new Map([['',Promise.resolve({handle:root,names:[]})]]);
-  const optional=async operation=>{
+  const enumerations=new WeakMap();let enumerated=0;
+  const exactChild=async(parent,name,kind)=>{
+    if(typeof parent.values!=='function')throw new UnavailableSourceName();
+    if(!enumerations.has(parent))enumerations.set(parent,(async()=>{
+      const children=new Map();let scanned=0,truncated=false;
+      try{
+        for await(const child of parent.values()){
+          signal?.throwIfAborted();
+          if(enumerated>=MAX_FILES){truncated=true;break;}
+          enumerated++;scanned++;
+          children.set(child.name,children.has(child.name)?null:child);
+          if(scanned>=MAX_FALLBACK_CHILDREN){truncated=true;break;}
+          if(scanned%100===0){await new Promise(resolve=>setTimeout(resolve,0));signal?.throwIfAborted();}
+        }
+      }catch(error){signal?.throwIfAborted();if(browserRejectsName(error))throw new UnavailableSourceName();throw error;}
+      return {children,truncated};
+    })());
+    const {children,truncated}=await enumerations.get(parent);signal?.throwIfAborted();
+    const child=children.get(name);
+    if(child?.kind===kind)return child;
+    throw new UnavailableSourceName(truncated?'limit':'blocked');
+  };
+  const optional=async(parent,name,kind)=>{
     signal?.throwIfAborted();
-    try{const value=await operation();signal?.throwIfAborted();return value;}
-    catch(error){signal?.throwIfAborted();if(['NotFoundError','TypeMismatchError'].includes(error.name))return null;throw error;}
+    try{const value=await parent[kind==='directory'?'getDirectoryHandle':'getFileHandle'](name,{create:false});signal?.throwIfAborted();return value;}
+    catch(error){
+      signal?.throwIfAborted();
+      if(['NotFoundError','TypeMismatchError'].includes(error.name))return null;
+      if(allowNameFallback&&browserRejectsName(error))return exactChild(parent,name,kind);
+      throw error;
+    }
   };
   const directory=parts=>{
     const key=parts.join('/');
     if(!folders.has(key))folders.set(key,(async()=>{
       const parent=await directory(parts.slice(0,-1));signal?.throwIfAborted();
       if(!parent)return null;
-      const handle=await optional(()=>parent.handle.getDirectoryHandle(parts.at(-1),{create:false}));
+      const handle=await optional(parent.handle,parts.at(-1),'directory');
       signal?.throwIfAborted();
       return handle?{handle,names:[...parent.names,childName(handle)]}:null;
     })());
@@ -76,14 +110,20 @@ function directoryResolver(root,signal) {
   };
   return async raw=>{
     normalizeSourcePath(raw);
-    const parts=raw.replace(/^\/+/,'').split('/');
-    const parent=await directory(parts.slice(0,-1));signal?.throwIfAborted();
-    if(!parent)return null;
-    const handle=await optional(()=>parent.handle.getFileHandle(parts.at(-1),{create:false}));
-    signal?.throwIfAborted();
-    if(!handle)return null;
-    const relative=[...parent.names,childName(handle)].join('/');
-    return {handle,relative,path:normalizeSourcePath(`${rootName}/${relative}`),getFile:()=>handle.getFile()};
+    try{
+      const parts=raw.replace(/^\/+/,'').split('/');
+      const parent=await directory(parts.slice(0,-1));signal?.throwIfAborted();
+      if(!parent)return null;
+      const handle=await optional(parent.handle,parts.at(-1),'file');
+      signal?.throwIfAborted();
+      if(!handle)return null;
+      const relative=[...parent.names,childName(handle)].join('/');
+      return {handle,relative,path:normalizeSourcePath(`${rootName}/${relative}`),getFile:()=>handle.getFile()};
+    }catch(error){
+      signal?.throwIfAborted();
+      if(error instanceof UnavailableSourceName){onUnavailable(raw,error.reason);return null;}
+      throw error;
+    }
   };
 }
 
@@ -125,7 +165,8 @@ async function targetedDeviceIndex(root,{signal}) {
       }
       if(candidate)await checkDatabaseWal(index,candidate,readSignal);
       readSignal?.throwIfAborted();
-      const resolve=directoryResolver(root,readSignal),items=new Map(initial),lookup=new Map();
+      const unavailable=new Map();
+      const resolve=directoryResolver(root,readSignal,{allowNameFallback:true,onUnavailable:(path,reason)=>unavailable.set(path,reason)}),items=new Map(initial),lookup=new Map();
       for(const database of databases)lookup.set(normalizeSourcePath(database.relative),items.get(database.path));
       let cursor=0,completed=0,failure;const pending=[...paths];
       const report=()=>onProgress(completed,pending.length);
@@ -158,6 +199,11 @@ async function targetedDeviceIndex(root,{signal}) {
       readSignal?.throwIfAborted();if(failure)throw failure;
       // No partially prepared aliases become visible after an error or cancel.
       publish(items,lookup);
+      const blocked=[...unavailable.values()].filter(reason=>reason==='blocked').length,limited=unavailable.size-blocked;
+      return {warnings:[
+        ...(blocked?[`${blocked} 件の音源・解析ファイルは、名前に含まれる文字などをブラウザが許可しないため読み取れませんでした。曲情報とプレイリストは保持しています。USB内の名前は変更していません。`]:[]),
+        ...(limited?[`${limited} 件の音源・解析ファイルは、フォルダ内の確認上限に達したため読み取れませんでした。曲情報とプレイリストは保持しています。`]:[]),
+      ]};
     },
   };
   return index;
@@ -216,7 +262,7 @@ export async function sourceDigest(bytes) {
 
 /** A worker per import keeps parsing off the playback/UI thread and makes cancellation immediate. */
 export function createLibraryReader() {
-  const worker = new Worker(new URL('./library-source-worker.js?v=88e0687b343dbe25', import.meta.url), {type:'module'});
+  const worker = new Worker(new URL('./library-source-worker.js?v=b48f446ea6c7f1bb', import.meta.url), {type:'module'});
   let sequence = 0; const pending = new Map(); let closed = false;
   const close = (error = new Error('読み込みを中止しました。')) => {
     if (closed) return; closed = true; worker.terminate();

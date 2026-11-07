@@ -5,9 +5,48 @@ import {parseRekordboxDatabase} from '../dist/rekordbox-sqlite.js';
 import {decrypt} from '../dist/vendor/onelibrary/sqlcipher.js';
 import {SQLiteDatabase,parseColumns} from '../dist/vendor/onelibrary/sqlite.js';
 import {image,masterTables,deviceTables,encryptFixture,DEFAULT_KEY} from './helpers/rekordbox-sqlite-fixture.mjs';
+import {MAX_TRACK_TEXT_LENGTH} from '../dist/track-metadata.js';
 
 const master=image(masterTables()),device=image(deviceTables());
 const encryptedMaster=encryptFixture(master),encryptedDevice=encryptFixture(device,DEFAULT_KEY);
+
+test('master and OneLibrary retain long track text and multiline comments with bounded validation', async () => {
+  for (const make of [masterTables, deviceTables]) {
+    const tables = make(), title = 'T'.repeat(MAX_TRACK_TEXT_LENGTH), artist = 'A'.repeat(MAX_TRACK_TEXT_LENGTH);
+    tables[0].rows[0][1] = title; tables[1].rows[0][1] = artist;
+    tables[0].columns.push(make === masterTables ? 'Commnt' : 'djComment');
+    tables[0].rows[0].push('Opening\r\nNext\tline');
+    const result = await parseRekordboxDatabase(image(tables));
+    assert.equal(result.tracks[0].title, title); assert.equal(result.tracks[0].artist, artist);
+    assert.equal(result.tracks[0].comments, 'Opening\r\nNext\tline');
+    for (const table of [0,1]) {
+      tables[table].rows[0][1] = 'x'.repeat(MAX_TRACK_TEXT_LENGTH + 1);
+      await assert.rejects(parseRekordboxDatabase(image(tables)), table === 0 ? /曲名/ : /アーティスト名/);
+      tables[table].rows[0][1] = 'bad\ntext';
+      await assert.rejects(parseRekordboxDatabase(image(tables)), table === 0 ? /曲名/ : /アーティスト名/);
+      tables[table].rows[0][1] = table === 0 ? title : artist;
+    }
+  }
+});
+
+test('master and OneLibrary omit invalid optional release years while retaining every track and playlist', async () => {
+  for (const make of [masterTables, deviceTables]) {
+    const tables = make(), master = make === masterTables;
+    tables[0].columns.push(master ? 'ReleaseYear' : 'releaseYear'); tables[0].rows[0].push(2019);
+    const second = [...tables[0].rows[0]];
+    second[0] = master ? '43' : 43; second[5] = master ? '/Music/Second.wav' : '/Contents/Second.wav'; second[8] = 2026;
+    tables[0].rows.push(second);
+    tables[3].rows.push(master ? ['21','11','43',2] : [11,43,2]);
+    const before = await parseRekordboxDatabase(image(tables));
+    tables[0].rows[0][8] = 12000;
+    const after = await parseRekordboxDatabase(image(tables));
+    assert.equal(after.tracks.length, 2); assert.equal(after.tracks[0].year, 0); assert.equal(after.tracks[1].year, 2026);
+    assert.deepEqual(after.tracks.map(({year, ...track}) => track), before.tracks.map(({year, ...track}) => track));
+    assert.deepEqual(after.playlists, before.playlists); assert.deepEqual(after.entries, before.entries);
+    assert.equal(after.warnings.length, before.warnings.length + 1);
+    assert.ok(after.warnings.some(message => /曲ID 42 のリリース年.*未設定/.test(message)));
+  }
+});
 
 test('independently generated master.db decrypts and imports hierarchical metadata with exact source paths',async()=>{
   const result=await parseRekordboxDatabase(encryptedMaster,{sourceId:'test-source',kind:'master'});

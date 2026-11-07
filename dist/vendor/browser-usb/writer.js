@@ -4,7 +4,7 @@
  * to the caller. Existing export.pdb files must never be replaced with a plan
  * containing only a subset of their tracks.
  */
-import {validateUsbLibrary, exportPositionMarks, exportTempos} from '../../usb-export.js?v=88e0687b343dbe25';
+import {validateUsbLibrary, exportPositionMarks, exportTempos} from '../../usb-export.js?v=b48f446ea6c7f1bb';
 
 let runtimePromise;
 const encoder = new TextEncoder(), decoder = new TextDecoder();
