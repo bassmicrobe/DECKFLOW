@@ -114,3 +114,20 @@ DECKFLOW_BAKEN_BIN="$PWD/.local/baken/bin/baken" node --test tests/usb-export.te
 - `--dry-run` は実出力先を作らないことを確認。
 
 これはディスク上の構造と内容の検証です。**iPad、USB実媒体、CDJ-3000での読込・再生・波形表示・Quantize・長時間運用は未検証**です。
+
+## 追記: DJ再生改善・既存USB更新のOSS評価
+
+確認日: 2026-11-07。以下は、上記の初期実装時点から追加・継続した採用判断です。
+
+| OSS | 一次資料で確認したライセンス | 今回の扱い |
+| --- | --- | --- |
+| [SoundTouchJS](https://github.com/cutterbl/SoundTouchJS/tree/d9e39a7ddcf74c7a145bbba45856f30068c82b79) | [MPL-2.0](https://github.com/cutterbl/SoundTouchJS/blob/d9e39a7ddcf74c7a145bbba45856f30068c82b79/LICENSE) | `@soundtouchjs/audio-worklet` **2.1.1** をKEY LOCK用に継続利用。スクラッチ／SYNCの改善を理由にDSP本体を改変・置換していない |
+| [Tone.js](https://github.com/Tonejs/Tone.js) | [MIT](https://github.com/Tonejs/Tone.js/blob/dev/LICENSE.md) | 音声スケジュールの設計比較に限定。実装コードのコピー、依存追加、同梱なし |
+| [Mixxx](https://github.com/mixxxdj/mixxx) | [GPL-2.0-or-later](https://github.com/mixxxdj/mixxx/blob/main/LICENSE) | DJ再生・同期・スクラッチの設計比較に限定。実装コードのコピー、リンク、同梱なし |
+| [sql.js](https://github.com/sql-js/sql.js/tree/9c4e167ec37129192d166ab9223faa9a4bd07c58) | [MIT](https://github.com/sql-js/sql.js/blob/9c4e167ec37129192d166ab9223faa9a4bd07c58/LICENSE) | **1.14.2** を新たに同梱。既存OneLibraryをSQLiteで編集し、対象外の行・未知の列・64-bit整数を維持するために採用 |
+
+SoundTouchJSの固定commitは `d9e39a7ddcf74c7a145bbba45856f30068c82b79`。配布物のintegrity、対応ソース、ビルド時のimport変換は [同梱NOTICE](../dist/vendor/soundtouchjs/NOTICE.md) と [provenance.json](../dist/vendor/soundtouchjs/provenance.json) に記録し、MPLの通知・対応ソースを継続して提供します。
+
+sql.jsの固定release commitは `9c4e167ec37129192d166ab9223faa9a4bd07c58`。[同梱NOTICE](../dist/vendor/sqlite-writer/NOTICE.md) に公式配布ZIPとJS／WASMのSHA-256、著作権表示、ES module化のためのloader変更3点を記録しています。SQLiteエンジン本体は変更していません。新規OneLibraryのスキーマには、既採用のMITライセンスのbaken固定commitを使用します。既存DBはそのテンプレートから再生成せず、SQLiteのトランザクションで必要な変更を加えます。
+
+USBアクセス層と組み合わせ、Device Library／OneLibrary双方への追加・HOT CUE更新を実装しています。既存音源・CUE・プレイリストの保持は合成データによる統合テストの対象ですが、物理iPad・USB実媒体・CDJ-3000での受け入れ確認は別途必要です。

@@ -30,20 +30,36 @@ final class NativeRuntimeTests: XCTestCase {
         let scriptURL = try XCTUnwrap(Bundle.main.url(forResource: "NativeMIDIBridge", withExtension: "js"))
         let script = try String(contentsOf: scriptURL, encoding: .utf8)
         configuration.userContentController.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        let usbScriptURL = try XCTUnwrap(Bundle.main.url(forResource: "NativeUSBBridge", withExtension: "js"))
+        let usbScript = try String(contentsOf: usbScriptURL, encoding: .utf8)
+        configuration.userContentController.addUserScript(WKUserScript(source: usbScript, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         let model = AppModel()
         let coordinator = DeckWebView.Coordinator(origin: url, model: model)
         configuration.userContentController.add(coordinator, name: "deckflowMIDI")
+        configuration.userContentController.addScriptMessageHandler(coordinator.usb, contentWorld: .page, name: "deckflowUSB")
         defer {
             configuration.userContentController.removeScriptMessageHandler(forName: "deckflowMIDI")
+            configuration.userContentController.removeScriptMessageHandler(forName: "deckflowUSB", contentWorld: .page)
             coordinator.midi.stop()
         }
         let webView = WKWebView(frame: .zero, configuration: configuration)
         coordinator.webView = webView
+        coordinator.usb.webView = webView
         let loaded = expectation(description: "localhost page loaded")
         let delegate = NavigationObserver(loaded)
         webView.navigationDelegate = delegate
         webView.load(URLRequest(url: url))
         await fulfillment(of: [loaded], timeout: 20)
+        let usbResult = try await webView.callAsyncJavaScript("""
+          let blocked = false;
+          try { await window.nativeUSB.stat('unselected-test-root', 'export.pdb'); }
+          catch (error) { blocked = String(error).includes('フォルダー選択'); }
+          return {available: window.nativeUSB.available, chunkSize: window.nativeUSB.chunkSize, blocked};
+          """, arguments: [:], in: nil, contentWorld: .page)
+        let usbValues = try XCTUnwrap(usbResult as? [String: Any])
+        XCTAssertEqual(usbValues["available"] as? Bool, true)
+        XCTAssertEqual(usbValues["chunkSize"] as? Int, 1_048_576)
+        XCTAssertEqual(usbValues["blocked"] as? Bool, true, "An unselected USB path must be rejected by the actual WK reply bridge")
         let appResult = try await webView.callAsyncJavaScript("""
           const deadline = Date.now() + 10000;
           while ((!document.querySelector('#a-platter') || !document.querySelector('#mapping-list tr')) && Date.now() < deadline) {

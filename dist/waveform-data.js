@@ -1,8 +1,10 @@
 /** Compact display envelopes. These never estimate or change musical preparation. */
 export const WAVEFORM_VERSION = 1;
 export const WAVEFORM_FIELDS = ['min', 'max', 'low', 'mid', 'high'];
-export const DEFAULT_WAVEFORM_FPS = 150;
-export const MAX_WAVEFORM_FRAMES = 300_000;
+// A two-second view keeps 1200 measured columns, including on Retina displays.
+// Long recordings lower their rate to stay within a 3 MB derived-data budget.
+export const DEFAULT_WAVEFORM_FPS = 600;
+export const MAX_WAVEFORM_FRAMES = 600_000;
 
 function integer(value, min, max, name) {
   if (!Number.isSafeInteger(value) || value < min || value > max) throw new RangeError(`${name} is invalid.`);

@@ -1,0 +1,18 @@
+{
+  "repository": "https://github.com/M-Igashi/baken",
+  "revision": "50d2ba07fdad49d3a95e02d2951ac7a67197e85a",
+  "version": "4.10.0",
+  "sha256": {
+    "pdb/fixed.rs": "6414c0eb0d87826bb34b145a31bfe19fd64025ea15797c5ff08a8512cfcf5a47",
+    "pdb/page.rs": "58b91dd912bd49b23a184da0b5936bf6512bf63b1a2283010f2d70c858ff9c28",
+    "pdb/rows.rs": "be6eba60e6d0df31399fbadfe08755f5fc9c2ae379e8b01bb7c5a6eb70e2ff05",
+    "pdb/string.rs": "a65a2381fd49549ab2672a68798df366cb7cea482479803424f5229af04a38d7",
+    "pdb/writer.rs": "ed294bebfde5e0e11ce71c35df52052880803f60d171f434d2da78ca3b69f561",
+    "anlz/section.rs": "26dcd314f6f78c7ac553a41457c0744c74690ccf812332cdb806057769ade025",
+    "anlz/cues.rs": "7138ddaf7ad8b6e8ac807018ac02916d722eb61eefb162b06d5746f832bba972",
+    "anlz/hash.rs": "0bd8a61da25c857e196c448e1217d8967a9775eb8ed628a6660497f3a4b48bd2",
+    "anlz/generate/assemble.rs": "eee70e76e0499dee4a3e8687a9438f069d54e698e7ae6263c6f99fea4f62ce60",
+    "anlz/generate/grid.rs": "8beb8b2c263b4b3c879f22004c7cdb0505d9a510c0fb9e49c46071ffdc25015b",
+    "anlz/generate/waveform.rs": "93cd44d2ccff8c713be7156f1ea975485c5711952148d5400aab309d63aeb4fa"
+  }
+}

@@ -30,6 +30,54 @@ function setup(getAudio=async id=>blob(id)) {
   return {context,states,player};
 }
 
+test('selecting metadata does not open audio and supports a seek before first playback', async () => {
+  let reads=0;
+  const {player,context}=setup(async id=>{reads++;return blob(id);});
+  player.select('A',60);
+  assert.equal(player.context,null);
+  assert.equal(reads,0);
+  assert.deepEqual(player.getState(),{trackId:'A',loading:false,playing:false,position:0,duration:60,error:null,rate:1,eq:{low:0,mid:0,high:0}});
+  player.seek(12);
+  assert.equal(player.context,null);
+  await player.toggle('A');
+  assert.equal(reads,1);
+  assert.equal(context.sources[0].offset,12);
+  assert.equal(player.getState().playing,true);
+});
+
+test('selecting another track cancels a pending load without stale autoplay', async () => {
+  const pending=deferred();
+  const {player,context}=setup(id=>id==='A'?pending.promise:Promise.resolve(blob(id)));
+  const loading=player.toggle('A');
+  await flush();
+  player.select('B',90);
+  pending.resolve(blob('A'));
+  await loading;
+  assert.deepEqual(context.decoded,[]);
+  assert.equal(context.sources.length,0);
+  assert.equal(player.getState().trackId,'B');
+  assert.equal(player.getState().duration,90);
+  assert.equal(player.getState().loading,false);
+  assert.equal(player.getState().playing,false);
+});
+
+test('same-track selection preserves playback, while a new selection stops and resets tone', async () => {
+  const {player,context}=setup();
+  await player.toggle('A');
+  player.setRate(1.2);player.setEQ('low',-12);
+  context.currentTime=10;
+  player.select('A',40);
+  assert.equal(player.getState().playing,true);
+  assert.equal(player.getState().position,12);
+  assert.equal(player.getState().duration,60);
+  player.select('B',-5);
+  assert.equal(context.sources[0].stopped,true);
+  assert.equal(player.buffer,null);
+  assert.deepEqual(player.getState(),{trackId:'B',loading:false,playing:false,position:0,duration:0,error:null,rate:1,eq:{low:0,mid:0,high:0}});
+  player.stop();
+  assert.equal(player.getState().trackId,'B');
+});
+
 test('the user gesture resumes audio before awaiting storage and only one source plays', async () => {
   let fetched=false;
   const {player,context}=setup(async id=>{fetched=true;return blob(id);});

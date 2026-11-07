@@ -1,7 +1,7 @@
 /** Read-only rekordbox 6/7 master.db and OneLibrary importer, usable in a Worker. */
-import {decrypt, DEFAULT_KEY, MASTER_KEY} from './vendor/onelibrary/sqlcipher.js?v=e321e49da3ca54c5';
-import {SQLiteDatabase} from './vendor/onelibrary/sqlite.js?v=e321e49da3ca54c5';
-import {validateLibrarySnapshot} from './library-store.js?v=e321e49da3ca54c5';
+import {decrypt, DEFAULT_KEY, MASTER_KEY} from './vendor/onelibrary/sqlcipher.js?v=af0e2156cf5d84be';
+import {SQLiteDatabase} from './vendor/onelibrary/sqlite.js?v=af0e2156cf5d84be';
+import {validateLibrarySnapshot} from './library-store.js?v=af0e2156cf5d84be';
 
 const fail = message => { throw new Error(message); };
 const MAX_DATABASE = 128 * 1024 * 1024;
@@ -130,6 +130,13 @@ export async function parseRekordboxDatabase(bytes,{sourceId = 'rekordbox',kind,
   if (required.some(c => !db.tables.get(s.tracks).columns.includes(c))) fail('対応していないrekordboxデータベースの列構成です。');
   const source = `${s.format}:${sourceId}`, warnings = [], entries = [], tracks = [];
   const artists = lookup(optionalTable(db,s.artists).filter(alive),s.artistId);
+  const master = s.format === 'master';
+  const names = (table, id) => lookup(optionalTable(db, table).filter(alive), id);
+  const albums = names(master?'djmdAlbum':'album', master?'ID':'album_id');
+  const genres = names(master?'djmdGenre':'genre', master?'ID':'genre_id');
+  const keys = names(master?'djmdKey':'key', master?'ID':'key_id');
+  const labels = names(master?'djmdLabel':'label', master?'ID':'label_id');
+  const display = (map, id) => map.get(String(id))?.[master?'Name':'name'] ?? map.get(String(id))?.ScaleName ?? '';
   const sourceTracks = lookup(db.select(s.tracks,{maxRows:100000}),s.id);
   if ([...sourceTracks.values()].filter(alive).length > 10000) fail('曲は10,000件以内で指定してください。');
   const trackIds = new Map(); let skipped = 0;
@@ -149,7 +156,16 @@ export async function parseRekordboxDatabase(bytes,{sourceId = 'rekordbox',kind,
     if (size != null && !Number.isSafeInteger(size)) fail('音源サイズは整数で指定してください。');
     const track = {id:trackId,title,artist:text(artist?.[s.artistName] ?? '','アーティスト名',180),bpm,duration,
       filename,beatOffset:0,cue:0,hotcues:Array(8).fill(null),peaks:[],confidence:0,audioMissing:true,addedAt:0,
-      fingerprint:`${source}:${id}`,tempos:[],positionMarks:[],rekordbox:{trackId:id,location,size}};
+      fingerprint:`${source}:${id}`,tempos:[],positionMarks:[],rekordbox:{trackId:id,location,size},
+      album:display(albums,row[master?'AlbumID':'album_id']), genre:display(genres,row[master?'GenreID':'genre_id']),
+      key:display(keys,row[master?'KeyID':'key_id']), label:display(labels,row[master?'LabelID':'label_id']),
+      composer:display(artists,row[master?'ComposerID':'artist_id_composer']), remixer:display(artists,row[master?'RemixerID':'artist_id_remixer']),
+      comments:row[master?'Commnt':'djComment'] ?? '', rating:row[master?'Rating':'rating'] ?? 0,
+      bitRate:row[master?'BitRate':'bitrate'] ?? 0, sampleRate:row[master?'SampleRate':'samplingRate'] ?? 0,
+      bitDepth:row[master?'BitDepth':'bitDepth'] ?? 0, year:row[master?'ReleaseYear':'releaseYear'] ?? 0,
+      trackNumber:row[master?'TrackNo':'trackNo'] ?? 0, discNumber:row[master?'DiscNo':'discNo'] ?? 0,
+      playCount:row[master?'DJPlayCount':'djPlayCount'] ?? 0, dateAdded:row[master?'DateAdded':'dateAdded'] ?? '',
+      dateCreated:row[master?'DateCreated':'dateCreated'] ?? '', dateModified:row[master?'updated_at':'dateModified'] ?? ''};
     tracks.push(track);trackIds.set(id,trackId);
     entries.push({trackId,sourcePath,analysisPath:path(row[s.analysis],'解析データパス',true)});
   }
@@ -175,7 +191,7 @@ export async function parseRekordboxDatabase(bytes,{sourceId = 'rekordbox',kind,
     if (!ancestor || ancestor[s.attribute] !== 1) fail('プレイリストフォルダーの参照が正しくありません。');
     return [...folderPath(parentId,visited),text(ancestor[s.listName],'フォルダー名',80)];
   };
-  const playlists = [];let smart = 0, duplicate = 0;
+  const playlists = [], playlistEntries = [];let smart = 0, duplicate = 0;
   for (const [id,row] of lists) {
     const folders = folderPath(id); // Validate folders even when empty/unsupported.
     if (row[s.attribute] === 1) continue;
@@ -186,11 +202,12 @@ export async function parseRekordboxDatabase(bytes,{sourceId = 'rekordbox',kind,
       if (seen.has(item.id)) { duplicate++; continue; } seen.add(item.id);ids.push(item.id);
     }
     playlists.push({id:`rdbp-${hash(`${source}\0playlist\0${id}`)}`,name:text(row[s.listName],'プレイリスト名',80),folderPath:folders,trackIds:ids});
+    playlistEntries.push({localId:playlists.at(-1).id,deviceId:master?id:Number(id)});
   }
   if (smart) warnings.push(`条件式から生成されるスマートプレイリスト${smart}件は取り込みませんでした。`);
   if (duplicate) warnings.push(`プレイリスト内の重複曲${duplicate}件をまとめました。`);
   if (s.format === 'master') masterCues(db,tracks,sourceTracks,warnings);
   else if (db.tables.has(s.cues)) warnings.push('OneLibraryのCUE・ループは、同時に選択したANLZ解析ファイルから引き継ぎます。');
   const result = validateLibrarySnapshot({format:'deckflow.library',version:1,tracks,playlists});
-  return {tracks:result.tracks,playlists:result.playlists,entries,warnings,format:s.format};
+  return {tracks:result.tracks,playlists:result.playlists,entries,playlistEntries,warnings,format:s.format};
 }

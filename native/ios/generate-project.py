@@ -22,25 +22,28 @@ def ref(name, path, file_type, tree='<group>'):
     return obj(name, 'PBXFileReference', lastKnownFileType=file_type, path=path, sourceTree=tree)
 
 
-source_names = ['DECKFLOWApp.swift', 'LocalAssetServer.swift', 'NativeMIDI.swift']
+source_names = ['DECKFLOWApp.swift', 'LocalAssetServer.swift', 'NativeMIDI.swift', 'NativeUSB.swift', 'NativeUSBStore.swift']
 source_refs = [ref('source.' + name, name, 'sourcecode.swift') for name in source_names]
 source_builds = [obj('build.' + name, 'PBXBuildFile', fileRef=reference) for name, reference in zip(source_names, source_refs)]
 script_ref = ref('script', 'NativeMIDIBridge.js', 'sourcecode.javascript')
+usb_script_ref = ref('usb.script', 'NativeUSBBridge.js', 'sourcecode.javascript')
 assets_ref = ref('assets', 'Resources/Web', 'folder')
 info_ref = ref('info', 'Info.plist', 'text.plist.xml')
-resources = [obj('build.script', 'PBXBuildFile', fileRef=script_ref), obj('build.assets', 'PBXBuildFile', fileRef=assets_ref)]
+resources = [obj('build.usb.script', 'PBXBuildFile', fileRef=usb_script_ref), obj('build.script', 'PBXBuildFile', fileRef=script_ref), obj('build.assets', 'PBXBuildFile', fileRef=assets_ref)]
 app_product = obj('app.product', 'PBXFileReference', explicitFileType='wrapper.application', includeInIndex=0, path='DECKFLOW.app', sourceTree='BUILT_PRODUCTS_DIR')
 test_product = obj('test.product', 'PBXFileReference', explicitFileType='wrapper.cfbundle', includeInIndex=0, path='DECKFLOWTests.xctest', sourceTree='BUILT_PRODUCTS_DIR')
 test_ref = ref('test.source', 'NativeRuntimeTests.swift', 'sourcecode.swift')
 test_build = obj('test.build', 'PBXBuildFile', fileRef=test_ref)
-app_group = obj('app.group', 'PBXGroup', children=source_refs + [script_ref, assets_ref, info_ref], path='DECKFLOW', sourceTree='<group>')
-test_group = obj('test.group', 'PBXGroup', children=[test_ref], path='DECKFLOWTests', sourceTree='<group>')
+usb_test_ref = ref('usb.test.source', 'NativeUSBTests.swift', 'sourcecode.swift')
+usb_test_build = obj('usb.test.build', 'PBXBuildFile', fileRef=usb_test_ref)
+app_group = obj('app.group', 'PBXGroup', children=source_refs + [script_ref, usb_script_ref, assets_ref, info_ref], path='DECKFLOW', sourceTree='<group>')
+test_group = obj('test.group', 'PBXGroup', children=[test_ref, usb_test_ref], path='DECKFLOWTests', sourceTree='<group>')
 products = obj('products', 'PBXGroup', children=[app_product, test_product], name='Products', sourceTree='<group>')
 main = obj('main', 'PBXGroup', children=[app_group, test_group, products], sourceTree='<group>')
 app_sources = obj('app.sources', 'PBXSourcesBuildPhase', buildActionMask=2147483647, files=source_builds, runOnlyForDeploymentPostprocessing=0)
 app_resources = obj('app.resources', 'PBXResourcesBuildPhase', buildActionMask=2147483647, files=resources, runOnlyForDeploymentPostprocessing=0)
 app_frameworks = obj('app.frameworks', 'PBXFrameworksBuildPhase', buildActionMask=2147483647, files=[], runOnlyForDeploymentPostprocessing=0)
-test_sources = obj('test.sources', 'PBXSourcesBuildPhase', buildActionMask=2147483647, files=[test_build], runOnlyForDeploymentPostprocessing=0)
+test_sources = obj('test.sources', 'PBXSourcesBuildPhase', buildActionMask=2147483647, files=[test_build, usb_test_build], runOnlyForDeploymentPostprocessing=0)
 test_frameworks = obj('test.frameworks', 'PBXFrameworksBuildPhase', buildActionMask=2147483647, files=[], runOnlyForDeploymentPostprocessing=0)
 
 

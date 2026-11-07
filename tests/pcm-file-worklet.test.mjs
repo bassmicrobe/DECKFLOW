@@ -9,7 +9,8 @@ function fixture({length = 80, rate = 1000, sourceRate = rate, pageFrames = 8, s
   let Processor;
   const messages = [];
   class Base { constructor() {this.port = {postMessage: message => messages.push(message)};} }
-  vm.runInNewContext(source.replace(/^import .*?;\n/m, ''), {AudioWorkletProcessor: Base, sampleRate: rate, Float32Array, createPcmResamplerFromKernel,
+  const clock = {currentTime: 0};
+  vm.runInNewContext(source.replace(/^import .*?;\n/m, ''), {AudioWorkletProcessor: Base, sampleRate: rate, Float32Array, createPcmResamplerFromKernel, get currentTime() {return clock.currentTime;},
     registerProcessor: (_name, type) => {Processor = type;}});
   const processor = new Processor({processorOptions: {length, sampleRate: sourceRate, channels: 1, pageFrames,
     kernel: createPcmResampler(sourceRate / rate).kernel}});
@@ -23,7 +24,7 @@ function fixture({length = 80, rate = 1000, sourceRate = rate, pageFrames = 8, s
         channels: [Float32Array.from({length: Math.min(pageFrames, length - start)}, (_, i) => sample(start + i))]});
     }
   };
-  const render = frames => {const output = new Float32Array(frames); processor.process([], [[output]]); return output;};
+  const render = frames => {const output = new Float32Array(frames); processor.process([], [[output]]); clock.currentTime += frames / rate; return output;};
   return {processor, send, supply, render, messages};
 }
 
@@ -99,4 +100,50 @@ test('96 kHz files reject ultrasonic aliasing at 48 kHz while preserving audible
   };
   assert.ok(rms(30000) < .02, '30 kHz must not fold into a full-volume 18 kHz tone');
   assert.ok(Math.abs(rms(1000) - Math.SQRT1_2) < .03, 'audible frequencies retain their level');
+});
+
+
+test('primed file sources begin at the scheduled audio sample without clearing cached pages', () => {
+  const f = fixture({length: 4096, rate: 48000, pageFrames: 1024, sample: () => .5});
+  f.send({type:'prepare', id:17, position:0}); f.supply();
+  assert.ok(f.messages.some(message=>message.type==='prepared'&&message.id===17));
+  const pages = [...f.processor.pages.values()];
+  f.send({type:'start', position:0, rate:1, when:64/48000});
+  assert.equal(f.processor.pages.get(0), pages[0]);
+  const out=f.render(128);
+  assert.ok(out.slice(0,64).every(value=>value===0));
+  assert.ok(out.slice(64).every(value=>value===.5));
+  assert.equal(f.processor.position,64);
+});
+
+test('fractional PCM rendering caches page lookup across sinc taps', () => {
+  const f = fixture({length:32768, pageFrames:32768, rate:48000});
+  f.send({type:'start',position:.01,rate:1.1}); f.supply();
+  let lookups=0; const original=f.processor.pages.get.bind(f.processor.pages);
+  f.processor.pages.get=index=>{lookups++; return original(index);};
+  f.render(128);
+  assert.ok(lookups<8, `page map lookups: ${lookups}`);
+});
+
+for(const cadence of [60,120]) test(`streamed reverse scratch stays constant at ${cadence} Hz`,()=>{
+  const f=fixture({length:192000,rate:48000,pageFrames:32768,sample:frame=>Math.sin(2*Math.PI*110*frame/48000)*.5});
+  f.send({type:'begin',position:2,session:1}); f.supply(); let next=0;
+  for(let frame=0;frame<24000;frame+=128){
+    while(next<=frame){f.send({type:'target',position:2-next/48000,timeStamp:next/48}); next+=48000/cadence;}
+    f.supply(); const before=f.processor.position; const output=f.render(128);
+    assert.ok(output.every(Number.isFinite));
+    if(frame>4800) assert.ok(Math.abs((f.processor.position-before)/128+1)<1e-5);
+  }
+});
+
+test('file-backed fast backspin uses the same anti-alias aperture as in-memory scratch',()=>{
+  const level=(frequency,movement)=>{
+    const f=fixture({length:16384,rate:48000,pageFrames:16384,sample:i=>Math.sin(2*Math.PI*frequency*i/48000)});
+    f.send({type:'begin',position:.2});f.supply();
+    const samples=Array.from({length:1024},(_,i)=>f.processor.read(10000-i*4,0,movement));
+    assert.ok(samples.every(Number.isFinite));
+    return Math.sqrt(samples.reduce((sum,value)=>sum+value*value,0)/samples.length);
+  };
+  assert.ok(level(14000,-4)<level(14000,0)*.25);
+  assert.ok(Math.abs(level(1000,-4)-Math.SQRT1_2)<.04);
 });

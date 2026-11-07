@@ -4,7 +4,7 @@ import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 const root=fileURLToPath(new URL('../dist/',import.meta.url));
-async function walk(dir){const paths=[];for(const entry of await readdir(dir,{withFileTypes:true})){const path=join(dir,entry.name);if(entry.isDirectory())paths.push(...await walk(path));else if(/\.(?:js|html|css|svg|webmanifest)$/.test(entry.name)&&entry.name!=='sw.js'&&!path.includes('/source/'))paths.push(path);}return paths.sort();}
+async function walk(dir){const paths=[];for(const entry of await readdir(dir,{withFileTypes:true})){const path=join(dir,entry.name);if(entry.isDirectory())paths.push(...await walk(path));else if(/\.(?:js|wasm|html|css|svg|webmanifest)$/.test(entry.name)&&entry.name!=='sw.js'&&!path.includes('/source/'))paths.push(path);}return paths.sort();}
 const files=await walk(root),contents=new Map();
 for(const file of files){contents.set(file,await readFile(file));if(file.endsWith('.js')){const result=spawnSync(process.execPath,['--check',file],{encoding:'utf8'});if(result.status!==0)throw new Error(result.stderr);}}
 const digest=data=>createHash('sha256').update(data).digest('hex').slice(0,16);
@@ -19,14 +19,15 @@ function localReference(reference,owner=join(root,'index.html')){
 // combine an entry from one release with a dependency from an older release.
 // Match only simple local JS URL literals. External/bare imports, templates,
 // comments without quoted URLs and service-worker registration are untouched.
-const localJsLiteral=/(['"])(\.{1,2}\/[^'"\\\r\n]*?\.js(?:\?[^'"\\\r\n#]*)?(?:#[^'"\\\r\n]*)?)\1/g;
+const localJsLiteral=/(['"])(\.{1,2}\/[^'"\\\r\n]*?\.(?:js|wasm)(?:\?[^'"\\\r\n#]*)?(?:#[^'"\\\r\n]*)?)\1/g;
 function rewriteModules(source,owner,version){
   return source.replace(localJsLiteral,(literal,quote,reference)=>{
     const {url,file}=localReference(reference,owner);
     if(file===join(root,'sw.js'))return literal;
     if(!contents.has(file))throw new Error(`Missing runtime asset: ${reference} (from ${runtimePath(owner)})`);
     url.searchParams.delete('v');
-    if(version)url.searchParams.set('v',version);
+    if(file.endsWith('.wasm'))url.searchParams.set('v',digest(contents.get(file)));
+    else if(version)url.searchParams.set('v',version);
     if(version)versionedAssets.add(runtimePath(file)+url.search);
     return quote+reference.split(/[?#]/)[0]+url.search+url.hash+quote;
   });

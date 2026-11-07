@@ -3,8 +3,9 @@
  * Browser output is the current system route; this is not a multichannel CUE driver.
  * Key lock uses locally vendored SoundTouchJS; scratch reads PCM in its own worklet.
  */
-import {openAudioFile} from './audio-resource.js?v=e321e49da3ca54c5';
-import {PcmFileSource, isPcmFile} from './pcm-file-source.js?v=e321e49da3ca54c5';
+import {openAudioFile} from './audio-resource.js?v=af0e2156cf5d84be';
+import {PcmFileSource, isPcmFile} from './pcm-file-source.js?v=af0e2156cf5d84be';
+import {normalizeBeatGrid, beatSegment, beatPosition} from './beat-grid.js?v=af0e2156cf5d84be';
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, Number.isFinite(Number(value)) ? Number(value) : min));
 
@@ -14,6 +15,7 @@ function createDeck(id) {
     offset: 0, startedAt: 0, rate: 1, volume: 0.85,
     eq: { low: 0, mid: 0, high: 0 }, cue: 0, loop: null,
     playing: false, wantsPlay: false, command: 0, generation: 0,
+    quantize: false, sync: false, phaseSync: false, syncMaster: id === 'a' ? 'b' : 'a', grid: [], pendingSource: null, retired: new Set(),
     meter: new Float32Array(256), keyLock: true, keyLockNode: null, keyLockError: null, transportGain: null,
     scratch: { token: 0, pending: false, active: false, resume: false, target: 0, start: 0, timeStamp: null,
       node: null, ready: null, resolveReady: null, cancelBegin: null, buffer: null, loadId: 0 },
@@ -98,8 +100,8 @@ export class AudioEngine {
     }
     this.keyLockRegistration = (async () => {
       try {
-        const module = await import('./vendor/soundtouchjs/packages/audio-worklet/.dist/SoundTouchNode.js?v=e321e49da3ca54c5');
-        const processorUrl = new URL('./vendor/soundtouchjs/packages/audio-worklet/.dist/soundtouch-processor.js?v=e321e49da3ca54c5', import.meta.url);
+        const module = await import('./vendor/soundtouchjs/packages/audio-worklet/.dist/SoundTouchNode.js?v=af0e2156cf5d84be');
+        const processorUrl = new URL('./vendor/soundtouchjs/packages/audio-worklet/.dist/soundtouch-processor.js?v=af0e2156cf5d84be', import.meta.url);
         await module.SoundTouchNode.register(context, processorUrl);
         if (this.disposed || context !== this.context) return false;
         this.SoundTouchNode = module.SoundTouchNode;
@@ -121,7 +123,7 @@ export class AudioEngine {
     if (!context.audioWorklet || !globalThis.AudioWorkletNode) {
       throw new Error('この環境はスクラッチ音声に対応していません。HTTPSまたはlocalhostで対応ブラウザーを使ってください。');
     }
-    this.scratchRegistration = context.audioWorklet.addModule(new URL('./scratch-worklet.js?v=e321e49da3ca54c5', import.meta.url)).catch(error => {
+    this.scratchRegistration = context.audioWorklet.addModule(new URL('./scratch-worklet.js?v=af0e2156cf5d84be', import.meta.url)).catch(error => {
       this.scratchRegistration = null;
       throw error;
     });
@@ -237,6 +239,7 @@ export class AudioEngine {
     deck.startedAt = this.context?.currentTime || 0;
     deck.cue = 0;
     deck.loop = null;
+    deck.grid = []; deck.sync = false; this._refreshPhaseRoutes();
     // Preload the audio-thread PCM while the user chooses the next action.
     this._prepareScratch(deck).catch(() => {});
   }
@@ -249,7 +252,7 @@ export class AudioEngine {
     deck.offset = 0;
     deck.startedAt = this.context?.currentTime || 0;
     deck.cue = 0;
-    deck.loop = null;
+    deck.loop = null; deck.grid = []; deck.sync = false; this._refreshPhaseRoutes();
   }
 
   _crossGain(id) {
@@ -272,29 +275,33 @@ export class AudioEngine {
     deck.startedAt = this.context?.currentTime || 0;
   }
 
-  _stopSource(deck) {
-    const source = deck.source;
+  _stopSource(deck, when = 0) {
+    const source = deck.source, keyLockNode = deck.keyLockNode, gain = deck.transportGain;
     deck.generation += 1;
-    deck.source = null;
-    if (deck.keyLockNode) {
-      deck.keyLockNode.disconnect();
-      deck.keyLockNode.port.close();
-      deck.keyLockNode = null;
+    deck.source = null; deck.keyLockNode = null; deck.transportGain = null;
+    deck.pendingSource?.stop(); deck.pendingSource = null;
+    const cleanup = () => {
+      if (source) {source.onended = null; try {source.stop();} catch {} try {source.disconnect();} catch {}}
+      if (keyLockNode) {keyLockNode.disconnect(); keyLockNode.port.close();}
+      gain?.disconnect(); deck.retired.delete(cleanup);
+    };
+    if (source && when > (this.context?.currentTime || 0)) {
+      // Continue the old phrase until the scheduled HOT CUE beat. Audio clock
+      // scheduling handles the cut; JS only releases nodes after completion.
+      gain?.gain.setValueAtTime(0, when);
+      source.onended = cleanup;
+      deck.retired.add(cleanup);
+      source.stop(when);
+    } else {
+      cleanup();
+      for (const retire of [...deck.retired]) retire();
     }
-    if (deck.transportGain) {
-      deck.transportGain.disconnect();
-      deck.transportGain = null;
-    }
-    if (!source) return;
-    source.onended = null;
-    try { source.stop(); } catch { /* Already stopped or naturally ended. */ }
-    try { source.disconnect(); } catch { /* The node may already be disconnected. */ }
   }
 
   _usesKeyLock(deck, rate = deck.rate) {
     // At unity rate pitch correction has no effect. Bypass its window/buffer
     // latency so releasing a scratch resumes PCM immediately at normal tempo.
-    return deck.keyLock && this.keyLockReady && this.SoundTouchNode && Math.abs(rate - 1) > 0.000001;
+    return !deck.phaseSync && deck.keyLock && this.keyLockReady && this.SoundTouchNode && Math.abs(rate - 1) > 0.000001;
   }
 
   _fallbackKeyLock(deck, source, transportGain) {
@@ -310,11 +317,11 @@ export class AudioEngine {
     try { this.onStatus({ type: 'keylock', deck: deck.id, available: true, enabled: false, message: deck.keyLockError }); } catch { /* UI callback. */ }
   }
 
-  _start(deck) {
+  _start(deck, {when = 0, source: preparedSource = null} = {}) {
     const context = this._ensureContext();
     if (!deck.buffer) return;
     if (deck.offset >= deck.buffer.duration) deck.offset = 0;
-    const source = isPcmFile(deck.buffer) ? new PcmFileSource(context, deck.buffer) : context.createBufferSource();
+    const source = preparedSource || (isPcmFile(deck.buffer) ? new PcmFileSource(context, deck.buffer) : context.createBufferSource());
     if (!isPcmFile(deck.buffer)) source.buffer = deck.buffer;
     source.playbackRate.value = deck.rate;
     if (deck.loop) {
@@ -324,7 +331,7 @@ export class AudioEngine {
     }
     const transportGain = context.createGain();
     transportGain.gain.value = 0;
-    transportGain.gain.setTargetAtTime(1, context.currentTime, 0.003);
+    transportGain.gain.setTargetAtTime(1, Math.max(context.currentTime, when), 0.003);
     transportGain.connect(deck.nodes.low);
     deck.transportGain = transportGain;
     if (this._usesKeyLock(deck)) {
@@ -344,7 +351,7 @@ export class AudioEngine {
     } else source.connect(transportGain);
     deck.source = source;
     const generation = ++deck.generation;
-    deck.startedAt = context.currentTime;
+    deck.startedAt = Math.max(context.currentTime, when);
     deck.playing = true;
     source.onerror = error => {
       if (deck.source !== source) return;
@@ -370,7 +377,7 @@ export class AudioEngine {
       try { this.onEnded(deck.id); } catch { /* A view callback must not break the transport. */ }
     };
     try {
-      const started = source.start(0, deck.offset);
+      const started = source.start(when, deck.offset);
       if (started?.catch) return started.catch(error => {source.onerror(error);});
     } catch (error) {
       this._stopSource(deck);
@@ -380,17 +387,31 @@ export class AudioEngine {
     }
   }
 
-  async play(id) {
+  async play(id, {quantize = true} = {}) {
     const deck = this._deck(id);
     if (deck.scratch.active || deck.scratch.pending) this._finishScratch(deck);
     if (!deck.buffer || deck.playing) return;
+    deck.pendingSource?.stop(); deck.pendingSource = null;
     deck.wantsPlay = true;
     const command = ++deck.command;
+    let preparedSource = null;
     try {
       await this.init();
       if (this.disposed || deck.command !== command || !deck.wantsPlay || deck.playing || !deck.buffer) return;
-      await this._start(deck);
+      if (quantize && deck.quantize && isPcmFile(deck.buffer)) {
+        preparedSource = new PcmFileSource(this.context, deck.buffer);
+        preparedSource.playbackRate.value = deck.rate;
+        deck.pendingSource = preparedSource;
+        const offset = beatPosition(deck.grid, deck.offset);
+        if (!await preparedSource.prepare(offset) || deck.command !== command || !deck.wantsPlay || this.disposed) {preparedSource.stop(); return;}
+        deck.pendingSource = null;
+      }
+      const plan = this._playPlan(deck, quantize);
+      deck.offset = plan.position;
+      await this._start(deck, {when: plan.when, source: preparedSource});
     } catch (error) {
+      preparedSource?.stop();
+      if (deck.pendingSource === preparedSource) deck.pendingSource = null;
       if (deck.command === command) deck.wantsPlay = false;
       throw error;
     }
@@ -404,6 +425,9 @@ export class AudioEngine {
     deck.wantsPlay = false;
     deck.playing = false;
     this._stopSource(deck);
+    for (const follower of Object.values(this.decks)) {
+      if (follower !== deck && follower.sync && follower.syncMaster === id && follower.wantsPlay && (follower.pendingSource || (follower.playing && follower.startedAt > (this.context?.currentTime || 0)))) this.pause(follower.id);
+    }
   }
 
   async toggle(id) {
@@ -434,6 +458,8 @@ export class AudioEngine {
     return {
       loaded: Boolean(deck.buffer),
       playing: deck.playing,
+      scheduled: deck.playing && deck.startedAt > (this.context?.currentTime || 0),
+      quantize: deck.quantize, sync: deck.sync,
       position: this._position(deck),
       duration: deck.buffer?.duration || 0,
       rate: deck.rate,
@@ -442,25 +468,41 @@ export class AudioEngine {
       loop: deck.loop ? { ...deck.loop } : null,
       scratching: deck.scratch.active || deck.scratch.pending,
       buffering: Boolean(deck.source?.buffering),
-      keyLock: deck.keyLock && this.keyLockReady,
+      keyLock: deck.keyLock && this.keyLockReady && !deck.phaseSync,
+      keyLockEffective: deck.keyLock && this.keyLockReady && !deck.phaseSync,
+      keyLockBypassReason: deck.phaseSync ? '拍同期中はPITCH LINKで再生します。KEY LOCKの設定は保持されます。' : null,
       keyLockRequested: deck.keyLock,
       keyLockAvailable: this.keyLockReady,
       keyLockError: deck.keyLockError || this.keyLockError,
     };
   }
 
-  setRate(id, rate) {
+  setRate(id, rate, {preserveSync = false, propagate = true} = {}) {
     const deck = this._deck(id);
+    if (!preserveSync) {deck.sync = false; this._refreshPhaseRoutes();}
     this._capture(deck);
     deck.rate = clamp(rate, 0.25, 4);
     if (deck.playing && Boolean(deck.keyLockNode) !== Boolean(this._usesKeyLock(deck))) {
       this._stopSource(deck);
       deck.playing = false;
       this._start(deck);
-      return;
+    } else {
+      if (deck.source) deck.source.playbackRate.setValueAtTime(deck.rate, this.context.currentTime);
+      if (deck.keyLockNode) deck.keyLockNode.playbackRate.setValueAtTime(deck.rate, this.context.currentTime);
     }
-    if (deck.source) deck.source.playbackRate.setValueAtTime(deck.rate, this.context.currentTime);
-    if (deck.keyLockNode) deck.keyLockNode.playbackRate.setValueAtTime(deck.rate, this.context.currentTime);
+    if (propagate) this._updateFollowers(id);
+  }
+
+  _updateFollowers(masterId) {
+    const master = this._deck(masterId), masterTempo = beatSegment(master.grid, this._position(master));
+    if (!masterTempo) return;
+    for (const follower of Object.values(this.decks)) {
+      if (!follower.sync || follower.syncMaster !== masterId) continue;
+      const tempo = beatSegment(follower.grid, this._position(follower));
+      if (!tempo) continue;
+      const rate = masterTempo.bpm * master.rate / tempo.bpm;
+      if (rate >= .5 && rate <= 1.5) this.setRate(follower.id, rate, {preserveSync:true, propagate:false});
+    }
   }
 
   setKeyLock(id, enabled) {
@@ -510,7 +552,7 @@ export class AudioEngine {
     } catch (error) {
       if (scratch.token !== token) return;
       this._finishScratch(deck);
-      if (resume) await this.play(id);
+      if (resume) await this.play(id, {quantize: false});
       throw error;
     } finally {
       clearTimeout(timeout);
@@ -548,7 +590,112 @@ export class AudioEngine {
     const deck = this._deck(id);
     if (!deck.scratch.active && !deck.scratch.pending) return;
     const resume = this._finishScratch(deck);
-    if (resume) await this.play(id);
+    if (resume) await this.play(id, {quantize: false});
+  }
+
+  setBeatGrid(id, metadata) {
+    const deck = this._deck(id);
+    deck.grid = normalizeBeatGrid(metadata);
+    this._refreshPhaseRoutes(); this._updateFollowers(id);
+  }
+
+  setQuantize(id, enabled) {
+    const deck = this._deck(id); deck.quantize = Boolean(enabled); this._refreshPhaseRoutes(); return deck.quantize;
+  }
+
+  _refreshPhaseRoutes() {
+    const participants = new Set();
+    for (const deck of Object.values(this.decks)) {
+      const master = this.decks[deck.syncMaster];
+      if (deck.sync && deck.quantize && deck.grid.length && master?.grid.length) {participants.add(deck.id); participants.add(master.id);}
+    }
+    let activated = false;
+    for (const deck of Object.values(this.decks)) {
+      const value = participants.has(deck.id);
+      if (deck.phaseSync === value) continue;
+      deck.phaseSync = value;
+      if (value && deck.keyLock) activated = true;
+      if (deck.playing && Boolean(deck.keyLockNode) !== Boolean(this._usesKeyLock(deck))) {
+        this._capture(deck); this._stopSource(deck); deck.playing = false; this._start(deck);
+      }
+    }
+    if (activated) {try {this.onStatus({type:'keylock', available:true, enabled:false, message:'拍同期中は両デッキをPITCH LINKで再生します。KEY LOCKの設定は保持されます。'});} catch {}}
+  }
+
+  setSync(id, enabled, masterId = id === 'a' ? 'b' : 'a') {
+    const deck = this._deck(id), master = this._deck(masterId);
+    if (master === deck) throw new Error('同期先に別のデッキを選んでください。');
+    if (!enabled) {deck.sync = false; this._refreshPhaseRoutes(); return false;}
+    const ownTempo = beatSegment(deck.grid, this._position(deck));
+    const masterTempo = beatSegment(master.grid, this._position(master));
+    if (!ownTempo || !masterTempo) throw new Error('両方のデッキへBPMのある曲を読み込んでください。');
+    const rate = masterTempo.bpm * master.rate / ownTempo.bpm;
+    if (rate < .5 || rate > 1.5) throw new Error('BPM差がテンポの調整範囲（±50%）を超えています。');
+    if (master.sync && master.syncMaster === id) master.sync = false;
+    deck.sync = true; deck.syncMaster = masterId;
+    this._refreshPhaseRoutes();
+    this.setRate(id, rate, {preserveSync: true});
+    return true;
+  }
+
+  _playPlan(deck, quantize = true, offset = deck.offset) {
+    const now = this.context?.currentTime || 0;
+    let position = quantize && deck.quantize ? beatPosition(deck.grid, offset) : offset;
+    if (deck.buffer && position >= deck.buffer.duration) position = quantize && deck.quantize
+      ? beatPosition(deck.grid, deck.buffer.duration - 1 / deck.buffer.sampleRate, 'previous') : 0;
+    const master = this.decks[deck.syncMaster];
+    if (!quantize || !deck.quantize || !deck.sync || !master?.playing || !master.grid.length || !deck.grid.length) return {position, when: 0};
+    if (master.source?.buffering) throw new Error('同期先の音源を読み込み中です。再生が安定してから操作してください。');
+    // Reserve on the audio clock, never setTimeout. Lead time gives both
+    // native sources and prepared file worklets time to receive the schedule.
+    const earliest = Math.max(now + .030, master.startedAt);
+    let masterPosition = this._position(master) + Math.max(0, earliest - Math.max(now, master.startedAt)) * master.rate;
+    if (master.loop && masterPosition >= master.loop.end) masterPosition = master.loop.start + (masterPosition - master.loop.start) % (master.loop.end - master.loop.start);
+    let next = beatPosition(master.grid, masterPosition, 'next');
+    let distance = Math.max(0, next - masterPosition);
+    if (master.loop && next >= master.loop.end) {
+      next = beatPosition(master.grid, master.loop.start, 'next');
+      if (next >= master.loop.end) next = master.loop.start;
+      distance = Math.max(0, master.loop.end - masterPosition) + Math.max(0, next - master.loop.start);
+    }
+    const tempo = beatSegment(master.grid, next), ownTempo = beatSegment(deck.grid, position);
+    const rate = tempo.bpm * master.rate / ownTempo.bpm;
+    if (rate < .5 || rate > 1.5) throw new Error('次の拍のBPM差がテンポの調整範囲（±50%）を超えています。');
+    deck.rate = rate;
+    return {position, when: earliest + distance / master.rate};
+  }
+
+  async triggerCue(id, seconds, {loop = null} = {}) {
+    const deck = this._deck(id);
+    if (!deck.buffer) return;
+    if (deck.scratch.active || deck.scratch.pending) this._finishScratch(deck);
+    deck.pendingSource?.stop(); deck.pendingSource = null;
+    const command = ++deck.command;
+    deck.wantsPlay = true;
+    try {await this.init();}
+    catch (error) {if (deck.command === command) deck.wantsPlay = deck.playing; throw error;}
+    if (deck.command !== command || !deck.wantsPlay || this.disposed) return;
+    const target = clamp(deck.quantize ? beatPosition(deck.grid, seconds) : seconds, 0, Math.max(0, deck.buffer.duration - 1 / deck.buffer.sampleRate));
+    let preparedSource = null;
+    if (isPcmFile(deck.buffer)) {
+      preparedSource = new PcmFileSource(this.context, deck.buffer); preparedSource.playbackRate.value = deck.rate;
+      if (loop && Number.isFinite(loop.start) && Number.isFinite(loop.end) && loop.end > loop.start) {
+        preparedSource.loopStart = loop.start; preparedSource.loopEnd = loop.end; preparedSource.loop = true;
+      }
+      deck.pendingSource = preparedSource;
+      try {
+        if (!await preparedSource.prepare(target) || deck.command !== command || !deck.wantsPlay || this.disposed) {preparedSource.stop(); return;}
+      } catch (error) {if (deck.pendingSource === preparedSource) deck.pendingSource = null; if (deck.command === command) deck.wantsPlay = deck.playing; throw error;}
+      deck.pendingSource = null;
+    }
+    let plan;
+    try {plan = this._playPlan(deck, true, target);}
+    catch (error) {preparedSource?.stop(); if (deck.command === command) deck.wantsPlay = deck.playing; throw error;}
+    this._stopSource(deck, plan.when);
+    deck.playing = false; deck.offset = plan.position;
+    deck.loop = loop && Number.isFinite(loop.start) && Number.isFinite(loop.end) && loop.end > loop.start
+      ? {start: loop.start, end: loop.end} : null;
+    await this._start(deck, {when: plan.when, source: preparedSource});
   }
 
   _smooth(param, value) {
@@ -584,14 +731,14 @@ export class AudioEngine {
 
   setCue(id, seconds) {
     const deck = this._deck(id);
-    deck.cue = clamp(seconds, 0, deck.buffer ? Math.max(0, deck.buffer.duration - 1 / deck.buffer.sampleRate) : 0);
+    deck.cue = clamp(deck.quantize ? beatPosition(deck.grid, seconds) : seconds, 0, deck.buffer ? Math.max(0, deck.buffer.duration - 1 / deck.buffer.sampleRate) : 0);
   }
 
   jumpCue(id) {
     const deck = this._deck(id);
     this.pause(id);
     this.clearLoop(id);
-    this.seek(id, deck.cue);
+    this.seek(id, deck.quantize ? beatPosition(deck.grid, deck.cue) : deck.cue);
   }
 
   setLoop(id, startSeconds, endSeconds) {

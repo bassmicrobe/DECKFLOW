@@ -61,6 +61,11 @@ struct DeckWebView: UIViewRepresentable {
            let script = try? String(contentsOf: path, encoding: .utf8) {
             userContent.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         }
+        if let path = Bundle.main.url(forResource: "NativeUSBBridge", withExtension: "js"),
+           let script = try? String(contentsOf: path, encoding: .utf8) {
+            userContent.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        }
+        userContent.addScriptMessageHandler(context.coordinator.usb, contentWorld: .page, name: "deckflowUSB")
         userContent.add(context.coordinator, name: "deckflowMIDI")
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.isOpaque = false
@@ -72,6 +77,7 @@ struct DeckWebView: UIViewRepresentable {
         if #available(iOS 16.4, *) { webView.isInspectable = true }
         #endif
         context.coordinator.webView = webView
+        context.coordinator.usb.webView = webView
         webView.load(URLRequest(url: url))
         return webView
     }
@@ -80,6 +86,7 @@ struct DeckWebView: UIViewRepresentable {
 
     static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "deckflowMIDI")
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: "deckflowUSB", contentWorld: .page)
         coordinator.midi.stop()
         webView.stopLoading()
     }
@@ -89,10 +96,12 @@ struct DeckWebView: UIViewRepresentable {
         weak var model: AppModel?
         weak var webView: WKWebView?
         let midi = NativeMIDI()
+        let usb: NativeUSB
         private var downloads: [ObjectIdentifier: URL] = [:]
 
         init(origin: URL, model: AppModel) {
             self.origin = origin; self.model = model
+            self.usb = NativeUSB(origin: origin)
             super.init()
             midi.onPorts = { [weak self] inputs in self?.send(["kind": "ports", "inputs": inputs]) }
             midi.onMessages = { [weak self] id, messages in self?.send(["kind": "messages", "inputId": id, "messages": messages]) }

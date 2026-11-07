@@ -173,3 +173,41 @@ JSONのnative保存・共有はソース確認までです。実機での保存�
 - 最終build: 38 runtime assets / 約476 KiB、SW `09586c34122f3937`。Dockerの75 precache URLが最終distとbytes一致。iOSへ72資産同期、署名なしgeneric Simulator build成功。
 - localhostで主要UI操作、日本語編集/検索、削除、配信サーバー停止後のPWA再起動・保存曲再生を確認。
 - 本番反映・実ユーザーデータ変更・実MIDI/USB/CDJ・物理iPad・native runtime確認は行っていない。監査用コンテナ/タブ/サーバーは終了。
+
+## 2026-11-07 — Library workspace, precise waveform and direct iPad USB layer
+
+- Library preview moved above the browser; one track per row, separate sortable title/artist/BPM/duration columns and75-track pages. Runtime demo-audio generation removed.
+- Selected-track waveform preparation runs without playback, with600points/sec (maximum600,000points), persistent bounded cache, visible beat/bar lines and bar.beat position. Imported preparation is retained.
+- Mobile390/474px empty and loaded states, iPad744/1133px widths and desktop1288px checked in a browser. Sidebar stretching, oversized open button and empty-state minimum heights fixed. Detailed visual evidence and screenshot locations: [design-qa.md](../design-qa.md).
+- Full Node suite:303tests,299passed,4skipped,0failed. Final subsequent USB-specific suite:19/19passed, including native-baken section comparison. The final WASM generation matches original baken DAT/EXT/2EX section hashes except the intentionally relocated PPTH audio path.
+- Native bridge6/6; exact Swift filesystem sources tested on macOS temporary folders10/10, including ordered writes, changes detected by SHA-256, rollback, reconnect recovery and coordinated concurrent writers.
+- Final synchronized iPad app passed generic Simulator build-for-testing. Simulator runtime tests stalled at launch before execution; no actual iPad/USB/file-picker/CDJ verification was performed.
+- USB initial scope: conventional Device Library HOT CUE A–H updates; new conventional libraries with WAV/MP3, PDB and ANLZ. Existing-library new-track merging and OneLibrary updates remain unsupported and are blocked. Source audio/PDB/wave/grid/memory cues remain unchanged during HOT CUE edits. Download/ZIP is not used for direct USB access.
+- Docker rebuilt with cache`04a52cb885c57bf9`; localhost8080healthy. These changes were not pushed or deployed to Vercel in this work.
+
+
+## 2026-11-07 — 両USBライブラリ更新・MIDI Learn・DJ再生改善（ローカル）
+
+- 全体テスト **371件中370成功、失敗0、1スキップ**。固定bakenを指定して実行。スキップは明示的な環境変数を必要とする1 GiB WAVの長時間テストのみ。USB追記・再取り込み・OneLibrary暗号化・拍同期・逆再生・描画キャッシュを含む。
+- Native USB JSブリッジ **7/7**。実Swiftストアソースの一時フォルダテスト **11/11**。最新Web資産133ファイルを同期し、署名なしgeneric iOS Simulatorの **build-for-testing成功**。今回Simulator runtimeを再実行していない。
+- Device LibraryとOneLibraryを音源のフルパスで対応付け、異なる曲IDを保持。片側だけの曲・プレイリストも取り込み、欠けた形式は元の音源とANLZを再利用して作成。既存の曲・CUE・重複を含むプレイリスト順・空フォルダ・未知テーブル/カラム・64bit値を保持する統合テストを追加。両DBと参照ANLZの変更検出、WAL/競合/キャンセル、再転送no-opを確認。
+- 許可済みUSBの再接続一覧を低頻度で更新。未許可のUSBは最初にフォルダ選択が必要。実物のUSB自動検出・書き戻し・CDJ再生を確認したという意味ではない。
+- 楽曲一覧は1曲1行、アルバム/ジャンル/キー/評価/追加日/最終変更日などを表示し、項目別ソート・列の表示設定を保存。XMLの日時を表示し、読み込んだだけで最終変更日時を更新しない。
+- 実ブラウザで82曲の合成XML/WAVを読み込み、試聴波形、タイトル/日時ソート、列設定の再読み込み後の保持、DJ画面でのMIDI対象選択（再生は発火しない）、設定JSONの保存・読み込みを確認。物理MIDIからのLearn完了は未確認。
+- SYNC＋QUANTIZEは相手の次の拍へ音声クロックで再生/HOT CUEを予約。マスターのテンポ変更、停止取消、ループ境界、可変TEMPOアンカーを検証。両デッキの実再生と95 BPMへの同期、モード表示をブラウザで確認。SoundTouchの遅延を確実に補正できないため拍同期ペアは両方PITCH LINKへ切り替え、KEY LOCK要求は保持して解除後に復元。可変BPMの演奏中の連続伸縮追従は対象外。
+- PCMファイルのスクラッチを20 msの時刻補間へ統一し、高速逆回転に補間/アンチエイリアス処理を追加。ブラウザのプラッタードラッグで位置変更と再生復帰を確認。タッチ入力の追加注入は利用中ブラウザのAPIで未対応のため未実施。実iPadの操作感・音質・出力遅延は未検証。
+- 波形は全体/詳細の描画をキャッシュ（全体32 MiB、1面8 MiB、最大64面）。2デッキ60 Hz/10秒のCanvas計装ベンチでfillRect **10,124,050→127,662（98.74%減）**、JSハーネス3198.9→133.1 ms。これはiPadのFPSやGPU時間を測った数値ではない。連続MIDI操作で不要なCUE DOM/両デッキ描画を行わない。
+- 1920×1080、1133×744、390×844で確認。ページ全体の横はみ出しなし。ブラウザconsole errorなし。検証用viewport/touch/SW bypassは解除し、開発サーバーを終了。合成曲は隔離QA originだけに保存。
+- 最終build **64 runtime assets、1981 KiB、cache `463bf986ff3eb58b`**。Docker再ビルド後healthy、`http://localhost:8080/` の実画面で新版QUANTIZEを確認。Vercelへの再デプロイ・Git pushは行っていない。
+- 画像と操作記録は [design-qa.md](../design-qa.md)。OSSの版/ライセンスと採否は [OSS_REVIEW.md](OSS_REVIEW.md)。
+
+
+## 2026-11-07 — 公開前のHOT CUE操作・ブラウザUSB欄修正
+
+- 楽曲管理のプレビューにHOT CUE A〜Hを追加。空き枠で保存、設定済み枠で現在の再生/停止状態を維持して移動、「解除」後のタップで削除。共有編集関数は既存memory/loop/他bankを保持し、保存成功後だけ表示を更新する。
+- 実ブラウザの合成音源で0:00.400への設定、停止中/再生中の呼び出し、再読み込み後の保持、解除を確認。390pxでは4列×2段、各44px以上、ページ横はみ出しなし。
+- ブラウザでDEVICES欄が消える問題を修正。「USBを開く」からフォルダ選択へ進み、USBの名前が付いた一番上のフォルダを選ぶ図と説明を追加。ブラウザでは自動接続検出/直接書き戻しは行わず、保存済みデバイスDBとして区別する。
+- 合成export.pdbをUIから読み込み、DEVICESへ登録、対象の1曲と3プレイリスト（空リスト含む）だけを表示することを確認。一般ブラウザ取り込みの戻り値にsource参照を追加し、取り込み直後のsource絞り込みを修正。物理USBの曲は読み込み/書き込みしていない。
+- CUE/プレビュー/保存キュー/USB一覧の対象テスト33件成功。元のテストに、CUE保存の失敗、export時のmainCUE保持、USB DBの判定、保存sourceの返却を追加。
+- 最終build:65 runtime assets /1993KiB、cache `5efc940e30d08886`。iOS同梱資産134ファイルへ同期。
+- スクリーンショット: `outputs/deckflow-final-qa/library-hotcue.png` と `usb-folder-guide.png`（ローカルQA出力）。

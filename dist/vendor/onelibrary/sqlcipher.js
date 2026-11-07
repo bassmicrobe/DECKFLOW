@@ -1,6 +1,6 @@
 // Adapted from v1vendi/onelibrary (MIT). See LICENSE and NOTICE.md.
 /**
- * SQLCipher 4 decryption in the browser, using WebCrypto only.
+ * SQLCipher 4 encryption/decryption in the browser, using WebCrypto only.
  *
  * rekordbox writes `exportLibrary.db` with SQLCipher 4 defaults:
  *
@@ -72,7 +72,7 @@ async function deriveKeys(passphrase, salt) {
   const macSalt = Uint8Array.from(salt, byte => byte ^ 0x3a);
   const macBase = await crypto.subtle.importKey('raw', bits, 'PBKDF2', false, ['deriveBits']);
   const macBits = await crypto.subtle.deriveBits({name:'PBKDF2', salt:macSalt, iterations:2, hash:'SHA-512'}, macBase, 256);
-  const mac = await crypto.subtle.importKey('raw', macBits, {name:'HMAC', hash:'SHA-512'}, false, ['verify']);
+  const mac = await crypto.subtle.importKey('raw', macBits, {name:'HMAC', hash:'SHA-512'}, false, ['verify','sign']);
   return {aes, mac};
 }
 
@@ -84,7 +84,7 @@ async function deriveKeys(passphrase, salt) {
  * @param {(done:number,total:number)=>void} [onProgress]
  * @returns {Promise<Uint8Array>} a standard SQLite file
  */
-export async function decrypt(buffer, passphrase = DEFAULT_KEY, onProgress) {
+export async function decrypt(buffer, passphrase = DEFAULT_KEY, onProgress, {signal} = {}) {
   const data = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
   if (data.length > 128 * 1024 * 1024) throw new DecryptError('database exceeds 128 MiB');
   if (data.length < PAGE_SIZE) throw new DecryptError('file is too small to be a database');
@@ -101,6 +101,7 @@ export async function decrypt(buffer, passphrase = DEFAULT_KEY, onProgress) {
   out.set(new TextEncoder().encode('SQLite format 3\0'), 0);
 
   for (let i = 0; i < pageCount; i++) {
+    signal?.throwIfAborted();
     const start = i * PAGE_SIZE;
     const bodyStart = i === 0 ? start + SALT_LEN : start;
     const ctEnd = start + PAGE_SIZE - RESERVE;
@@ -136,6 +137,37 @@ export async function decrypt(buffer, passphrase = DEFAULT_KEY, onProgress) {
       `decryption produced an invalid header (page size ${declaredPageSize}, ` +
       `reserve ${declaredReserve}) - the passphrase is probably wrong`
     );
+  }
+  return out;
+}
+
+/** SQLCipher 4 encryption of a SQLite-engine-written image. Reserved bytes
+ * must already exist in every page; inserting them into a normal SQLite file
+ * would corrupt its cell offsets. Salt and each page IV are freshly random. */
+export async function encrypt(buffer, passphrase = DEFAULT_KEY, onProgress, {signal} = {}) {
+  const data = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+  signal?.throwIfAborted();
+  if (data.length < PAGE_SIZE || data.length > 128 * 1024 * 1024 || data.length % PAGE_SIZE ||
+      new TextDecoder().decode(data.subarray(0,16)) !== 'SQLite format 3\0' ||
+      new DataView(data.buffer,data.byteOffset,data.byteLength).getUint16(16) !== PAGE_SIZE || data[20] !== RESERVE) {
+    throw new DecryptError('encryption requires a 4096-byte SQLite image with 80 reserved bytes per page');
+  }
+  const salt = crypto.getRandomValues(new Uint8Array(SALT_LEN));
+  const {aes,mac} = await deriveKeys(passphrase,salt);
+  const out = new Uint8Array(data.length); out.set(salt);
+  const count = data.length / PAGE_SIZE;
+  for (let i=0;i<count;i++) {
+    signal?.throwIfAborted();
+    const start=i*PAGE_SIZE, body=start+(i===0?SALT_LEN:0), end=start+PAGE_SIZE-RESERVE;
+    const iv=crypto.getRandomValues(new Uint8Array(IV_LEN));
+    // WebCrypto appends one PKCS#7 block. All useful plaintext is block aligned.
+    const ciphertext=new Uint8Array(await crypto.subtle.encrypt({name:'AES-CBC',iv},aes,data.subarray(body,end))).subarray(0,end-body);
+    out.set(ciphertext,body); out.set(iv,end);
+    const authenticated=new Uint8Array(ciphertext.length+IV_LEN+4);
+    authenticated.set(ciphertext); authenticated.set(iv,ciphertext.length);
+    new DataView(authenticated.buffer).setUint32(authenticated.length-4,i+1,true);
+    out.set(new Uint8Array(await crypto.subtle.sign('HMAC',mac,authenticated)),end+IV_LEN);
+    if (onProgress && (i%64===0 || i===count-1)) onProgress(i+1,count);
   }
   return out;
 }

@@ -34,8 +34,9 @@ function decodeValues(bytes, offset, serialTypes) {
       let value = 0n;
       for (let i = 0; i < len; i++) value = (value << 8n) | BigInt(bytes[p + i]);
       const n = Number(BigInt.asIntN(len * 8, value));
-      if (!Number.isSafeInteger(n)) fail('SQLite integer exceeds supported range');
-      out.push(n);
+      // Unused vendor columns can contain full SQLite INTEGER values. Keep
+      // those exact; application code still validates the fields it consumes.
+      out.push(Number.isSafeInteger(n) ? n : BigInt.asIntN(len * 8, value));
     } else if (t === 7) {
       const n = new DataView(bytes.buffer, bytes.byteOffset + p, 8).getFloat64(0);
       if (!Number.isFinite(n)) fail('nonfinite SQLite number');

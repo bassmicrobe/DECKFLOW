@@ -1,6 +1,6 @@
 /** A single library audition, independent of the DJ decks and mixer. */
-import {openAudioFile} from './audio-resource.js?v=e321e49da3ca54c5';
-import {PcmFileSource, isPcmFile} from './pcm-file-source.js?v=e321e49da3ca54c5';
+import {openAudioFile} from './audio-resource.js?v=af0e2156cf5d84be';
+import {PcmFileSource, isPcmFile} from './pcm-file-source.js?v=af0e2156cf5d84be';
 
 export class PreviewPlayer {
   constructor({getAudio, getBuffer = null, openAudio = openAudioFile, onChange = () => {}, createContext = () => {
@@ -105,6 +105,22 @@ export class PreviewPlayer {
     const started = source.start(0, this.position);
     this.playing = true;
     if (started?.catch) return started.catch(error => {source.onerror(error);});
+  }
+
+  /** Select metadata for inspection without opening audio or starting playback. */
+  select(trackId, duration = 0) {
+    if (this.disposed) throw new Error('試聴プレイヤーは終了しています。ページを再読み込みしてください。');
+    if (typeof trackId !== 'string' || !trackId || trackId === this.trackId) return;
+    this.command++;
+    this._disconnect();
+    this.buffer = null;
+    this.trackId = trackId;
+    this.duration = Number.isFinite(duration) ? Math.max(0, duration) : 0;
+    this.position = 0;
+    this.loading = false;
+    this.error = null;
+    this._resetTone();
+    this._notify();
   }
 
   async toggle(trackId) {

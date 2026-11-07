@@ -72,6 +72,9 @@ test('directory handles enumerate lazily and cancellation never reads audio',asy
 test('source import persists preparation and encoded audio without decoding, and cached reopen skips DB/ANLZ parsing',async()=>{
   const library=await openLibrary(),s=setup();
   const first=await cacheSourceLibrary({library,...s});
+  assert.equal(first.source.databasePath,s.candidate.path);
+  assert.equal(first.source.id,(await library.getSources())[0].id);
+  assert.ok(first.source.parsed.playlists.length>0);
   assert.equal(first.addedTracks,1);assert.equal(first.copied,1);assert.equal(s.calls.audioBytes,0);
   const tracks=await library.getTracks();assert.equal(tracks[0].audioMissing,false);assert.equal(tracks[0].hotcues[7],4.25);assert.ok(tracks[0].peaks.length);assert.equal((await library.getAudio(tracks[0].id)).size,882044);
   const saved=await library.getSources();assert.equal(saved.length,1);assert.equal(saved[0].cachedAudio,1);

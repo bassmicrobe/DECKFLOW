@@ -3,8 +3,8 @@
  * This bounded subset parser deliberately has no DTD, external entity, network,
  * script or processing-instruction support. Works in browsers and Node alike.
  */
-import {validateLibrarySnapshot} from './library-store.js?v=e321e49da3ca54c5';
-import {parseRekordboxLocation} from './rekordbox-model.js?v=e321e49da3ca54c5';
+import {validateLibrarySnapshot} from './library-store.js?v=af0e2156cf5d84be';
+import {parseRekordboxLocation} from './rekordbox-model.js?v=af0e2156cf5d84be';
 const fail = message => { throw new Error(message); };
 const own = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
 const validCodepoint = value => value === 9 || value === 10 || value === 13 || (value >= 32 && value <= 0xD7FF) || (value >= 0xE000 && value <= 0xFFFD) || (value >= 0x10000 && value <= 0x10FFFF);
@@ -150,6 +150,11 @@ export function parseRekordboxXml(source) {
     const track = {id, title: a.Name || location.filename.replace(/\.[^.]+$/, ''), artist: a.Artist || '', duration,
       bpm: average || tempos[0]?.bpm || null, beatOffset: tempos[0]?.start ?? 0, cue: firstMemory?.start ?? 0, hotcues,
       filename: location.filename, fingerprint: '', addedAt, peaks: [], confidence: 0, audioMissing: true,
+      album:a.Album || '', genre:a.Genre || '', key:a.Tonality || '', label:a.Label || '', composer:a.Composer || '',
+      remixer:a.Remixer || '', mix:a.Mix || '', comments:a.Comments || '', fileType:a.Kind || '',
+      rating:Math.min(5, Math.floor(number(a, 'Rating', 0) / 51)), bitRate:number(a, 'BitRate', 0), sampleRate:number(a, 'SampleRate', 0),
+      year:number(a, 'Year', 0), trackNumber:number(a, 'TrackNumber', 0), discNumber:number(a, 'DiscNumber', 0),
+      playCount:number(a, 'PlayCount', 0), dateAdded:a.DateAdded || '', dateModified:a.DateModified || '',
       tempos, positionMarks, rekordbox: {trackId, location: location.location, size: own(a, 'Size') ? number(a, 'Size') : null}};
     sourceIds.set(trackId, id);
     if (!locations.has(location.identity)) locations.set(location.identity, []);

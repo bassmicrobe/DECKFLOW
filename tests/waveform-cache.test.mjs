@@ -72,6 +72,13 @@ test('file read errors and cancellation release waveform work without stale post
 class StoredCache extends WaveformCache {
   constructor(store, options = {}, fixture = workers()) { super({indexedDB: undefined, workerFactory: fixture.factory, ...options}); this.store = store; this.fixture = fixture; }
   async _readDisk(job) { return this.store.get(job.diskKey)?.waveform ?? null; }
+  async _findDisk(key) {
+    for (const [diskKey, entry] of this.store) {
+      const signature = JSON.parse(diskKey)[1], dimensions = JSON.parse(signature);
+      if (entry.key === key && dimensions[4] === this.options.framesPerSecond && dimensions[5] === this.options.maxFrames) return {signature, waveform: entry.waveform};
+    }
+    return null;
+  }
   async _writeDisk(job, waveform) { if (!job.invalidated) this.store.set(job.diskKey, {key: job.key, waveform}); }
   async _deleteDisk(key) { for (const [id, item] of this.store) if (item.key === key) this.store.delete(id); }
   async _clearDisk() { this.store.clear(); }
@@ -154,11 +161,11 @@ test('deduplicates generation, reuses RAM and transfers only bounded owned PCM c
 });
 
 test('serializes generation, invalidates changed dimensions and bounds LRU memory', async () => {
-  const {instance, fixture} = cache({maxEntries: 1, maxBytes: 1000});
+  const {instance, fixture} = cache({maxEntries: 1, maxBytes: 4000});
   const a = instance.get('a', audio()), b = instance.get('b', audio());
   await Promise.all([a, b]);
   assert.equal(fixture.maximumActive, 1); assert.equal(instance.stats.entries, 1);
-  assert.ok(instance.stats.bytes <= 1000);
+  assert.ok(instance.stats.bytes <= 4000);
   await instance.get('b', audio(24000));
   assert.equal(fixture.starts, 3); assert.equal(instance.stats.entries, 0);
   assert.equal(instance.stats.evictions, 1);
@@ -202,7 +209,7 @@ test('optional persistent storage errors fall back to RAM without failing a wave
   instance._readDisk = async () => { throw new Error('database unavailable'); };
   instance._writeDisk = async () => { throw Object.assign(new Error('disk full'), {name: 'QuotaExceededError'}); };
   const result = await instance.get('a', audio()); await instance.diskTail;
-  assert.equal(result.frameCount, 150); assert.equal(instance.stats.diskErrors, 2);
+  assert.equal(result.frameCount, 600); assert.equal(instance.stats.diskErrors, 2);
   assert.equal(await instance.get('a', audio()), result);
   instance.dispose();
 });
@@ -227,6 +234,35 @@ test('malformed audio and options are rejected before retaining work', async () 
   await assert.rejects(instance.get('bad', {...audio(), length: 0}), /invalid/);
   await assert.rejects(instance.get('bad', {...audio(), getChannelData: () => new Float32Array(1)}), /channels/);
   assert.equal(fixture.starts, 0); assert.equal(instance.stats.pending, 0);
-  assert.throws(() => new WaveformCache({maxFrames: 400000}), /options/);
+  assert.throws(() => new WaveformCache({maxFrames: 600001}), /options/);
+  instance.dispose();
+});
+
+test('selection restores persisted detail by fingerprint without opening or decoding audio', async () => {
+  const store = new Map(), first = new StoredCache(store);
+  const expected = await first.get('id|audio-v1', audio());
+  await first.diskTail; first.dispose();
+  const next = new StoredCache(store, {}, workers({fail: true}));
+  assert.equal(await next.find('id|audio-v1'), expected);
+  assert.equal(next.stats.persistentHits, 1); assert.equal(next.stats.generated, 0);
+  assert.equal(await next.find('id|audio-v1'), expected);
+  assert.equal(next.stats.hits, 1);
+  assert.equal(await next.find('id|audio-v2'), null);
+  next.dispose();
+});
+
+test('selection lookup shares existing generation and stale disk reads cannot resurrect deleted audio', async () => {
+  const {instance, fixture} = cache({}, workers({defer: true}));
+  const pending = instance.get('a', audio()), selected = instance.find('a');
+  await tick(); await fixture.flush();
+  assert.equal(await selected, await pending); assert.equal(fixture.starts, 1);
+  await instance.delete('a');
+  let finishRead;
+  instance._findDisk = () => new Promise(resolve => { finishRead = resolve; });
+  const stale = instance.find('a'); await tick();
+  const deleting = instance.delete('a');
+  finishRead({signature: '[]', waveform: await pending});
+  assert.equal(await stale, null); await deleting;
+  assert.equal(instance.stats.entries, 0);
   instance.dispose();
 });

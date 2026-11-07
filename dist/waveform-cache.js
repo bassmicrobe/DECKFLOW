@@ -1,4 +1,4 @@
-import {DEFAULT_WAVEFORM_FPS, MAX_WAVEFORM_FRAMES, WAVEFORM_VERSION, validateWaveform, waveformBytes, waveformDimensions} from './waveform-data.js?v=e321e49da3ca54c5';
+import {DEFAULT_WAVEFORM_FPS, MAX_WAVEFORM_FRAMES, WAVEFORM_VERSION, validateWaveform, waveformBytes, waveformDimensions} from './waveform-data.js?v=af0e2156cf5d84be';
 
 const DEFAULT_BYTES = 16 * 1024 * 1024;
 const DISK_BYTES = 32 * 1024 * 1024;
@@ -15,7 +15,7 @@ export class WaveformCache {
     persistentBytes = DISK_BYTES, persistentEntries = 128, framesPerSecond = DEFAULT_WAVEFORM_FPS,
     maxFrames = MAX_WAVEFORM_FRAMES, chunkSamples = 32768, timeoutMs = 120000,
     indexedDB = globalThis.indexedDB,
-    workerFactory = () => new Worker(new URL('./waveform-worker.js?v=e321e49da3ca54c5', import.meta.url), {type: 'module'}),
+    workerFactory = () => new Worker(new URL('./waveform-worker.js?v=af0e2156cf5d84be', import.meta.url), {type: 'module'}),
   } = {}) {
     this.maxBytes = natural(maxBytes, 'RAM limit');
     this.maxEntries = natural(maxEntries, 'RAM entries');
@@ -38,9 +38,30 @@ export class WaveformCache {
     this.diskTail = Promise.resolve();
     this.disposed = false;
     this.serial = 0;
+    this.revision = 0;
     this.counters = {hits: 0, persistentHits: 0, generated: 0, shared: 0, evictions: 0, diskErrors: 0};
   }
   get stats() { return {...this.counters, bytes: this.bytes, entries: this.entries.size, pending: this.jobs.size}; }
+
+  /** A fingerprint identifies immutable source audio, so persisted envelopes
+   * can be restored before opening or decoding that audio at all. */
+  async find(key) {
+    if (this.disposed) throw abortError();
+    if (typeof key !== 'string' || !key || key.length > 4096) throw new TypeError('Waveform cache key is invalid.');
+    const cached = this.entries.get(key);
+    if (cached) {
+      this.entries.delete(key); this.entries.set(key, cached); this.counters.hits++;
+      return cached.waveform;
+    }
+    const pending = this.pending.get(key);
+    if (pending) { this.counters.shared++; return pending.promise; }
+    const revision = this.revision;
+    const entry = await this._disk(() => this._findDisk(key));
+    if (this.disposed || revision !== this.revision || !entry) return null;
+    const waveform = validateWaveform(entry.waveform);
+    this._remember(key, entry.signature, waveform); this.counters.persistentHits++;
+    return waveform;
+  }
 
   get(key, buffer) {
     if (this.disposed) return Promise.reject(abortError());
@@ -104,6 +125,7 @@ export class WaveformCache {
     this.entries.set(key, {signature, waveform}); this.bytes += bytes;
   }
   delete(key) {
+    this.revision++;
     this._remove(key);
     const job = this.pending.get(key);
     if (job) job.invalidated = true;
@@ -111,6 +133,7 @@ export class WaveformCache {
     return this._disk(() => this._deleteDisk(key));
   }
   clear() {
+    this.revision++;
     this.entries.clear(); this.bytes = 0;
     for (const job of this.jobs) job.invalidated = true;
     this.pending.clear();
@@ -119,6 +142,7 @@ export class WaveformCache {
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
+    this.revision++;
     this.entries.clear(); this.bytes = 0;
     for (const job of this.jobs) job.invalidated = true;
     this.pending.clear();
@@ -252,6 +276,36 @@ export class WaveformCache {
           transaction.objectStore('lru').put({key: job.diskKey, owner: job.key, bytes: waveformBytes(waveform), at: Date.now()});
           done(waveform);
         } catch { transaction.objectStore('data').delete(job.diskKey); transaction.objectStore('lru').delete(job.diskKey); }
+      };
+    });
+  }
+  _findDisk(key) {
+    return this._transaction((transaction, done) => {
+      const data = transaction.objectStore('data'), lru = transaction.objectStore('lru');
+      const request = lru.getAll();
+      request.onsuccess = () => {
+        const candidates = request.result.filter(entry => entry.owner === key).sort((a, b) => b.at - a.at);
+        const readNext = () => {
+          const entry = candidates.shift();
+          if (!entry) return;
+          let signature;
+          try {
+            const parts = JSON.parse(entry.key); signature = parts[1];
+            const dimensions = JSON.parse(signature);
+            if (parts[0] !== key || dimensions[0] !== WAVEFORM_VERSION ||
+                dimensions[4] !== this.options.framesPerSecond || dimensions[5] !== this.options.maxFrames) return readNext();
+          } catch { return readNext(); }
+          const read = data.get(entry.key);
+          read.onsuccess = () => {
+            try {
+              const waveform = validateWaveform(read.result), dimensions = JSON.parse(signature);
+              if (waveform.sourceLength !== dimensions[1] || waveform.sampleRate !== dimensions[2] || waveform.channels !== dimensions[3] ||
+                  waveform.requestedFramesPerSecond !== dimensions[4] || waveform.frameCount !== Math.min(dimensions[1], dimensions[5], Math.ceil(waveform.duration * dimensions[4]))) throw new Error('Cached dimensions differ.');
+              lru.put({...entry, at: Date.now()}); done({signature, waveform});
+            } catch { data.delete(entry.key); lru.delete(entry.key); readNext(); }
+          };
+        };
+        readNext();
       };
     });
   }

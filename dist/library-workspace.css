@@ -1,0 +1,240 @@
+/* Library preparation: a persistent player above a dense, scrollable browser.
+   Colors, effects and square corners remain owned by theme.css. */
+#library-section {--track-row:32px;--track-control:26px;display:flex;flex-direction:column;gap:12px;padding:12px 0;min-height:0}
+#library-section:has(.library-preview:not([hidden])) {padding-bottom:12px}
+body:has(.tab[data-view=library].active) #library-section {height:calc(100dvh - 68px)}
+#library-section .library-workspace {flex:1;min-height:0;grid-template-columns:190px minmax(0,1fr);align-items:stretch;gap:12px}
+#library-section .library-sidebar {position:relative;top:auto;min-height:0;max-height:none;overflow:auto;padding:16px 10px}
+#library-section .sidebar-heading {padding:0 6px 14px}
+#library-section .sidebar-heading strong {font-size:15px}
+#library-section .source-open-button {min-height:38px;font-size:12px;padding:8px;margin-bottom:18px}
+#library-section .sidebar-group {margin-bottom:16px}
+#library-section .library-sidebar .pill,#library-section .source-nav-list button {min-height:36px;padding:6px 9px;font-size:11px}
+#library-section .library-sidebar .playlist-tabs {max-height:none}
+#library-section .usb-device-list {display:grid;gap:4px;min-width:0}
+#library-section .usb-device-button {display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;min-width:0;min-height:44px;padding:7px 9px;border:1px solid transparent;background:transparent;text-align:left}
+#library-section .usb-device-button:hover {background:rgba(255,255,255,.05)}
+#library-section .usb-device-button[aria-pressed=true] {border-color:var(--brand-hi);background:rgba(255,255,255,.06)}
+#library-section .usb-device-button strong {font-size:11px;font-weight:500;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#library-section .usb-device-button small {flex:none;color:var(--muted);font-size:9px;white-space:nowrap}
+#library-section .usb-device-button[data-connected=false] strong {color:var(--muted)}
+#library-section #usb-add {width:100%;min-height:40px;padding:7px 9px;text-align:left;font-size:10px}
+#library-section .usb-devices-status {margin:4px 7px 0;color:var(--muted);font-size:9px;line-height:1.6}
+#library-section .usb-devices-status:empty {display:none}
+#library-section .library-main {display:flex;flex-direction:column;min-height:0;padding:0 12px}
+#library-section .library-toolbar-row {display:flex;align-items:center;gap:18px;padding:10px 0;flex:none}
+#library-section .library-heading {flex:1;min-width:0;border:0;padding:0;gap:10px}
+#library-section .library-heading h2 {font-size:16px;gap:6px;white-space:nowrap}
+#library-section #track-count {margin-left:4px;font-size:10px;letter-spacing:0}
+#library-section .library-actions {display:flex;gap:6px;margin-left:auto}
+#library-section .library-tools summary {min-height:34px;padding:5px 9px;font-size:11px}
+#library-section .library-toolbar {flex:0 1 350px;margin:0;gap:8px}
+#library-section .search input,#library-section .sort select {min-height:34px;padding-top:6px;padding-bottom:6px;font-size:11px}
+#library-section .search input {padding-left:33px}
+#library-section .search svg {left:10px}
+#library-section .sort select {max-width:108px}
+#library-section .source-filter {flex:none;margin:0 0 8px;padding:4px 8px;font-size:11px}
+#library-section .source-filter button {min-height:30px}
+
+/* A single visible line for every track at every width. */
+#library-section .library-table-wrap {flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;border:1px solid var(--edge);background:rgba(0,0,0,.22)}
+#library-section .library-table {display:table;table-layout:fixed;min-width:850px;white-space:nowrap;border-collapse:separate;border-spacing:0}
+#library-section .library-table thead {display:table-header-group;position:static;width:auto;height:auto;overflow:visible;clip-path:none}
+#library-section .library-table tbody {display:table-row-group}
+#library-section .library-table tbody tr {display:table-row;margin:0;padding:0;border:0;cursor:pointer}
+#library-section .library-table tbody tr:nth-child(even) {background-color:rgba(255,255,255,.018)}
+#library-section .library-table tbody tr:hover {background-color:rgba(255,255,255,.06)}
+#library-section .library-table tbody tr:focus-visible {outline:2px solid var(--brand-hi);outline-offset:-2px}
+#library-section .library-table th {position:sticky;top:0;z-index:2;height:30px;padding:0 7px;background:var(--ink);font:10px var(--sans);letter-spacing:0;white-space:nowrap}
+#library-section .library-table th {width:auto;min-width:0}
+#library-section .library-table th button {display:inline-flex;align-items:center;gap:4px;min-height:30px;padding:0;background:none;border:0;font:inherit;letter-spacing:inherit;color:inherit;white-space:nowrap}
+#library-section .library-table th[aria-sort] {color:var(--text)}
+#library-section .library-table th[aria-sort=ascending] button::after {content:"↑";color:var(--brand-hi)}
+#library-section .library-table th[aria-sort=descending] button::after {content:"↓";color:var(--brand-hi)}
+#library-section .library-table td {display:table-cell;height:var(--track-row);padding:2px 7px;border-bottom:1px solid rgba(255,255,255,.05);vertical-align:middle;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#library-section .library-table .track-index,#library-section .library-table .track-number,#library-section .library-table .wave-cell {display:table-cell}
+#library-section .track-identity {gap:8px;height:var(--track-control)}
+#library-section .track-copy {overflow:hidden}
+#library-section .track-copy .track-title {display:block;font:500 12px/1.25 var(--sans);text-align:left;width:100%;margin:0;padding:0;border:0;background:none;color:var(--text);min-height:var(--track-control);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+#library-section .track-artist-cell {color:var(--muted);font-size:11px}
+#library-section .track-bpm,#library-section .track-duration {font-family:var(--mono);font-size:11px}
+#library-section .track-data-cell {font-family:var(--mono);font-size:10px;color:var(--muted)}
+#library-section .track-rating {font-size:12px;letter-spacing:1px}
+#library-section .library-columns-menu {width:230px;max-height:min(65dvh,440px);overflow:auto;padding:6px}
+#library-section .library-columns-menu label {display:flex;align-items:center;gap:10px;min-height:34px;margin:0;padding:5px 8px;font-size:11px;white-space:nowrap;cursor:pointer}
+#library-section .library-columns-menu label:hover {background:rgba(255,255,255,.05)}
+#library-section .library-columns-menu input[type=checkbox] {appearance:auto;flex:none;width:16px;height:16px;min-height:16px;padding:0;margin:0;accent-color:var(--brand-hi)}
+#library-section #reset-library-columns {width:100%;min-height:36px;border-top:1px solid var(--edge);margin-top:5px}
+#library-section .track-bpm::before {content:none}
+#library-section .mini-wave {height:22px;min-width:0}
+#library-section .preview-track-button {width:var(--track-control);min-height:var(--track-control);height:var(--track-control);flex:0 0 var(--track-control);font-size:10px;padding:0}
+#library-section .load-button {width:var(--track-control);min-width:var(--track-control);height:var(--track-control);min-height:var(--track-control);padding:0;font-size:10px}
+#library-section .more-button {min-width:var(--track-control);width:var(--track-control);min-height:var(--track-control);height:var(--track-control);padding:0;font-size:18px}
+#library-section .link-audio-button {min-height:var(--track-control);padding:2px 4px;white-space:nowrap;font-size:10px;max-width:none}
+#library-section .track-actions {gap:4px}
+#library-section .library-pages {flex:none;gap:12px;padding:6px 0;font:11px var(--mono)}
+#library-section .library-pages button {min-height:30px;padding:4px 10px;font-size:11px}
+#library-section .library-footer {flex:none;min-height:26px;padding:5px 0;gap:10px;font-size:9px;line-height:1.6;letter-spacing:0}
+#library-section #library-status {max-height:40px;overflow:auto}
+
+/* Full-width preview. Its controls stay outside the list's scroll container. */
+#library-section .library-preview {position:relative;inset:auto;flex:none;display:flex;flex-direction:column;align-items:stretch;gap:0;padding:0;margin:0;z-index:4;animation:none;min-width:0}
+#library-section .preview-header {display:flex;align-items:center;gap:18px;padding:12px 16px;min-width:0}
+#library-section .preview-buttons {flex:none;gap:6px}
+#library-section .preview-buttons button {width:44px;height:44px;min-height:44px}
+#library-section .preview-meta {flex:1;min-width:0;gap:4px}
+#library-section .preview-meta strong {font-size:16px;line-height:1.3;font-weight:650}
+#library-section .preview-meta>span:last-child {font-size:11px}
+#library-section .preview-status {font-size:9px;letter-spacing:.12em}
+#library-section .preview-readout {display:flex;flex-direction:column;gap:4px;align-items:flex-end;flex:none;min-width:68px}
+#library-section .preview-readout span {font:9px var(--mono);letter-spacing:.1em;color:var(--muted)}
+#library-section .preview-readout strong {font:600 24px var(--mono);letter-spacing:-1px;font-variant-numeric:tabular-nums}
+#library-section #preview-time {flex:none;font:11px var(--mono);color:var(--muted);white-space:nowrap}
+#library-section .preview-tone {flex:none;grid-area:auto}
+#library-section .preview-tone summary {padding:10px 12px;min-height:40px;font-size:11px}
+#library-section .preview-tone-panel {top:calc(100% + 12px);bottom:auto;right:0;width:min(650px,calc(100vw - 56px));max-height:60dvh;z-index:10}
+#library-section .preview-timeline {display:flex;flex-direction:row;align-items:center;gap:12px;padding:0 16px 10px;grid-area:auto;min-width:0}
+#library-section .preview-wave-label {flex:none;font:9px var(--sans);color:var(--muted)}
+#library-section .preview-waveform {width:auto;flex:1;min-width:0;height:32px}
+#library-section .preview-detail {position:relative;border-top:1px solid var(--edge);background:var(--ink)}
+#library-section .preview-detail-toolbar {display:flex;justify-content:space-between;align-items:center;padding:0 8px 0 16px;height:28px;color:var(--muted);font-size:9px}
+#library-section .preview-detail-toolbar .wave-zoom button {width:30px;min-height:28px;height:28px;font-size:15px}
+#library-section .preview-detail-toolbar .wave-zoom output {font-size:10px;color:var(--muted)}
+#preview-wave-status {min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#preview-beat-position {margin-left:auto;margin-right:18px;font:11px var(--mono);color:var(--text);font-variant-numeric:tabular-nums}
+.usb-device-heading {display:flex;align-items:center;justify-content:space-between;gap:16px;margin:20px 0}
+.usb-device-actions {display:grid;gap:8px;margin:16px 0}
+#usb-progress {white-space:pre-line;overflow-wrap:anywhere}
+#preview-detail-wave {display:block;width:100%;height:92px;touch-action:none;cursor:crosshair}
+#library-section .empty-library-alternatives {grid-template-columns:1fr}
+#library-section.is-empty .library-main {overflow:auto}
+#library-section.is-empty .library-toolbar-row {flex-wrap:wrap}
+#library-section.is-empty .library-heading {width:100%}
+#library-section .empty-library-main {padding:32px 18px}
+#library-section .empty-library-copy h2 {font-size:28px}
+
+@media(max-width:1100px) {
+  #library-section .library-workspace {grid-template-columns:160px minmax(0,1fr);gap:8px}
+  #library-section .library-main {padding:0 8px}
+  #library-section .library-toolbar-row {flex-wrap:wrap;gap:6px;padding:8px 0}
+  #library-section .library-heading {width:100%;flex:auto}
+  #library-section .library-toolbar {flex:1 1 100%}
+  #library-section .preview-header {gap:12px;padding:10px 12px}
+}
+@media(max-height:850px) and (min-width:681px) {
+  #library-section {gap:8px;padding-top:8px}
+  #library-section .preview-header {padding-top:8px;padding-bottom:8px}
+  #library-section .preview-waveform {height:26px}
+  #preview-detail-wave {height:64px}
+}
+@media(any-pointer:coarse) {
+  #library-section {--track-row:44px;--track-control:40px}
+  #library-section .library-table {min-width:930px}
+  #library-section .library-table th {height:44px}
+  #library-section .library-table th button {min-height:44px}
+  #library-section .library-columns-menu label {min-height:44px}
+  #library-section .library-pages button,#library-section .library-tools summary,#library-section .source-open-button {min-height:44px}
+  #library-section .library-tools summary {padding-top:10px;padding-bottom:10px}
+  #library-section .search input,#library-section .sort select {min-height:44px;font-size:16px}
+  #library-section .preview-detail-toolbar {height:44px}
+  #library-section .preview-detail-toolbar .wave-zoom button {width:44px;min-height:44px}
+  #library-section .library-sidebar .pill,#library-section .source-nav-list button {min-height:44px}
+}
+@media(max-width:680px) {
+  body:has(.tab[data-view=library].active) #library-section {height:auto;min-height:0;gap:8px;padding:8px 0}
+  /* Content-sized rows prevent the desktop flex/grid layout from stretching
+     the sidebar and its open button into the remaining viewport height. */
+  #library-section .library-workspace {flex:none;grid-template-columns:minmax(0,1fr);grid-auto-rows:max-content;align-content:start;align-items:start;gap:8px}
+  #library-section .library-sidebar {display:grid;grid-template-columns:minmax(0,1fr) auto;grid-auto-rows:max-content;align-content:start;align-items:center;min-height:0;height:auto;padding:8px;gap:6px 10px;overflow:visible}
+  #library-section .sidebar-heading {grid-column:1;grid-row:1;padding:0 2px;min-width:0}
+  #library-section .source-open-button {grid-column:2;grid-row:1;align-self:center;height:44px;min-height:44px;margin:0;padding:8px 12px}
+  #library-section .sidebar-group {display:grid;grid-column:1/-1;grid-template-columns:60px minmax(0,1fr) auto;align-items:center;gap:8px;margin:0;min-width:0}
+  #library-section .sidebar-group:has(#source-nav-list>p:only-child) {display:none}
+  #library-section .sidebar-group-label {grid-column:1;grid-row:1;font-size:8px;letter-spacing:.12em;margin:0 2px;white-space:nowrap}
+  #library-section .source-nav-list {grid-column:2/-1;display:flex;overflow-x:auto;overscroll-behavior-x:contain;gap:6px;padding:0;min-width:0}
+  #library-section .source-nav-list button {flex:none;width:auto;max-width:230px;min-height:44px;white-space:nowrap}
+  #library-section .library-sidebar .playlist-tabs {grid-column:2;grid-row:1;display:flex;flex-direction:row;gap:6px;max-width:100%;min-height:44px;max-height:none;padding:0;overflow-x:auto;overscroll-behavior-x:contain}
+  #library-section .library-sidebar .pill {flex:none;width:auto;max-width:230px;min-height:44px;padding:6px 9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #library-section .library-sidebar #new-playlist {grid-column:3;grid-row:1;width:auto;min-height:44px;margin:0;padding:4px;font-size:10px;white-space:nowrap}
+  #library-section .usb-device-list {grid-column:2;grid-row:1;display:flex;min-width:0;overflow-x:auto;gap:6px;overscroll-behavior-x:contain}
+  #library-section .usb-device-button {flex:none;width:auto;max-width:240px;min-height:44px;padding:6px 9px}
+  #library-section #usb-add {grid-column:3;grid-row:1;min-height:44px;width:auto;margin:0;padding:4px;white-space:nowrap}
+  #library-section .usb-devices-status {grid-column:1/-1;margin:0 2px}
+  #library-section .library-main {min-height:0;padding:0 8px}
+  #library-section .library-table-wrap {flex:0 1 auto;height:60dvh;min-height:240px}
+  #library-section .library-table tbody tr:has(td[colspan]) {display:table-row}
+  #library-section .library-table tbody td[colspan] {display:table-cell}
+  #library-section .preview-header {display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:6px 8px;padding:8px}
+  #library-section .preview-buttons {grid-column:1;grid-row:1}
+  #library-section .preview-meta {grid-column:2;grid-row:1;gap:3px}
+  #library-section .preview-meta strong {font-size:13px}
+  #library-section .preview-meta>span:last-child {font-size:10px}
+  #library-section .preview-readout {grid-column:3;grid-row:1;min-width:48px;max-width:80px;overflow:hidden}
+  #library-section .preview-readout span {max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:8px;letter-spacing:0}
+  #library-section .preview-readout strong {font-size:19px}
+  #library-section #preview-time {grid-column:1/3;grid-row:2;font-size:10px}
+  #library-section .preview-tone {grid-column:3;grid-row:2}
+  #library-section .preview-tone summary {min-height:34px;padding:7px;font-size:10px}
+  #library-section .preview-tone-panel {position:absolute;top:calc(100% + 8px);right:0;bottom:auto;width:min(650px,calc(100vw - 40px));padding:14px}
+  #library-section .preview-timeline {padding:0 10px 8px;gap:8px}
+  #library-section .preview-waveform {height:28px}
+  #preview-detail-wave {height:64px}
+  #library-section .preview-detail-toolbar {padding-left:10px}
+  #library-section .library-preview:not(.has-track) .preview-timeline,#library-section .library-preview:not(.has-track) .preview-detail {display:none}
+  #library-section .library-preview:not(.has-track) .preview-header {padding-bottom:8px}
+  #library-section .empty-state {min-height:0;margin:0}
+  #library-section .empty-library-main {display:block;min-height:0;padding:20px 8px;text-align:left}
+  #library-section .empty-library-copy h2 {font-size:26px;margin:0 0 10px}
+  #library-section .empty-library-copy p {margin-bottom:12px;font-size:10px;letter-spacing:.08em}
+  #library-section .empty-library-cta {justify-content:flex-start;gap:6px 12px}
+  #library-section .empty-library-cta .button {min-height:44px;padding:10px 12px}
+  #library-section .empty-library-alternatives>div {min-height:0;padding:10px 12px}
+}
+
+/* Learn directly on the DJ surface, without replacing it with a settings page. */
+.deck-mapping-toolbar {display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 14px;border:1px solid var(--brand-hi);background:var(--ink);margin-bottom:14px}
+.deck-mapping-copy {display:flex;flex-direction:column;gap:5px;min-width:0;font-size:11px}
+.deck-mapping-copy strong {font-size:12px;color:var(--brand-hi)}
+.deck-mapping-copy small {font-size:10px;color:var(--muted)}
+.deck-mapping-actions {display:flex;flex-wrap:wrap;align-items:center;gap:6px;flex:none;max-width:55%}
+.deck-mapping-actions label {display:flex;align-items:center;gap:6px;font-size:10px;margin:0}
+.deck-mapping-actions select {min-height:34px;max-width:155px;padding:4px 6px;font-size:10px}
+#play-view.midi-assign-mode [data-midi-action] {outline:1px dashed rgba(255,255,255,.38);outline-offset:3px;cursor:crosshair;touch-action:none}
+#play-view.midi-assign-mode label[data-midi-action] {outline:none}
+#play-view.midi-assign-mode .midi-learn-target {outline:2px solid var(--brand-hi);outline-offset:3px;background-color:rgba(229,43,52,.13)}
+#play-view.midi-assign-mode .platter {cursor:default}
+#mapping-view .mapping-advanced>summary {padding:14px 0;font-size:12px;cursor:pointer;color:var(--muted)}
+#mapping-view .mapping-advanced[open]>summary {color:var(--text);border-bottom:1px solid var(--edge);margin-bottom:16px}
+.quantize-button {min-height:32px;padding:5px 9px;background:var(--ink);border:1px solid var(--edge);color:var(--muted);font:10px var(--mono)}
+.quantize-button.active {color:var(--brand-hi);border-color:var(--brand-hi)}
+@media(max-width:1100px){.deck-mapping-toolbar {align-items:stretch;flex-direction:column;gap:10px}.deck-mapping-actions {max-width:none}}
+@media(any-pointer:coarse){.deck-mapping-actions .button,.deck-mapping-actions select,.quantize-button {min-height:44px}}
+
+/* Preparation cues remain directly accessible below the selected waveform. */
+#library-section .preview-cues {padding:6px 12px 10px;border-top:1px solid var(--edge);background:var(--ink);min-width:0}
+#library-section .preview-cue-heading {display:flex;align-items:center;gap:12px;min-width:0;margin-bottom:5px}
+#library-section .preview-cue-heading strong {font:600 10px var(--mono);letter-spacing:.08em;white-space:nowrap}
+#library-section #preview-cue-hint {flex:1;min-width:0;color:var(--muted);font-size:10px;line-height:1.5}
+#library-section #preview-cue-erase {flex:none;min-height:44px;padding:5px 12px;border:1px solid var(--edge-hi);border-radius:0;background:transparent;color:var(--muted);font-size:11px}
+#library-section #preview-cue-erase[aria-pressed=true] {border-color:#ef535b;color:#ff8890;background:rgba(239,83,91,.1)}
+#library-section .preview-cue-pads {display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:6px}
+#library-section .preview-cue-pads button {display:flex;align-items:center;justify-content:center;gap:8px;min-width:0;min-height:44px;padding:5px 8px;border:1px solid var(--edge-hi);border-radius:0;background:#111217;color:var(--muted);box-shadow:none;touch-action:manipulation}
+#library-section .preview-cue-pads button span {font:600 12px var(--mono)}
+#library-section .preview-cue-pads button small {font:10px var(--mono);white-space:nowrap;font-variant-numeric:tabular-nums}
+#library-section .preview-cue-pads button.is-set {color:var(--text);border-color:var(--brand-hi);background:#23212c}
+#library-section .preview-cue-pads button:hover:not(:disabled) {border-color:var(--text)}
+#library-section .preview-cue-pads button:focus-visible,#library-section #preview-cue-erase:focus-visible {outline:2px solid var(--brand-hi);outline-offset:2px}
+#library-section .preview-cues.is-erasing .preview-cue-pads button.is-set {border-color:#ef535b;color:#ff8890}
+@media(max-width:1100px) {#library-section .preview-cue-pads button {flex-direction:column;gap:3px;padding:5px 3px}}
+@media(max-width:680px) {
+  #library-section .preview-cues {padding:6px 8px 8px}
+  #library-section .preview-cue-heading {gap:8px}
+  #library-section .preview-cue-pads {grid-template-columns:repeat(4,minmax(0,1fr))}
+  #library-section .preview-cue-heading strong {font-size:9px}
+  #library-section #preview-cue-hint {font-size:9px}
+}
+
+.usb-folder-guide { border: 1px solid var(--line, #303036); background: #101014; padding: 12px; margin: 12px 0; }
+.usb-folder-guide strong { color: var(--text, #ededf0); font-size: 13px; }
+.usb-folder-guide pre { white-space: pre-wrap; margin: 10px 0; font-size: 12px; line-height: 1.6; }
+.usb-folder-guide p { font-size: 12px; line-height: 1.7; margin: 0; color: var(--muted, #a8a8b0); }

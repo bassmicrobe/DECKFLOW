@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {WAVEFORM_COLORS, drawWaveform, getWaveformWindow, timeAtWaveformX, waveformBeats} from '../dist/waveform-view.js';
+import {WAVEFORM_COLORS, drawWaveform, getWaveformWindow, timeAtWaveformX, waveformBeats, waveformBeatPosition} from '../dist/waveform-view.js';
 
 function canvasFixture(width = 10, height = 100, dpr = 1) {
   const calls = [], rect = {width, height};
@@ -252,4 +252,41 @@ test('hidden, missing-context and empty waveforms are safe without false cache h
   assert.equal(calls.filter(call => call.type === 'rect').length, 2); // Background and center line only.
   assert.equal(drawWaveform(null), false);
   assert.equal(drawWaveform({...canvas, getContext: () => null}), false);
+});
+
+test('bar labels and current musical position follow imported tempo changes without resetting each window', () => {
+  const track = {bpm: 99, tempos: [
+    {start: .125, bpm: 120, meter: '4/4', beat: 1},
+    {start: 4.125, bpm: 60, meter: '4/4', beat: 1},
+  ]};
+  const before = JSON.stringify(track);
+  const labels = waveformBeats(track, 2.125, 8.125, {labels: true}).filter(beat => beat.major);
+  assert.deepEqual(labels.map(({time, label}) => ({time, label})), [
+    {time: 2.125, label: '2'}, {time: 4.125, label: '3'}, {time: 8.125, label: '4'},
+  ]);
+  assert.deepEqual(waveformBeatPosition(track, 5.625), {bar: 3, beat: 2, fraction: .5, bpm: 60, meter: 4});
+  assert.equal(waveformBeatPosition(track, 0), null);
+  assert.equal(waveformBeatPosition({bpm: null}, 3), null);
+  assert.equal(JSON.stringify(track), before);
+});
+
+test('imported anchor beat phase controls bar labels and position through a meter change', () => {
+  const track = {tempos: [{start: 0, bpm: 120, meter: '4/4', beat: 1}, {start: 2, bpm: 60, meter: '3/4', beat: 2}]};
+  assert.deepEqual(waveformBeatPosition(track, 2), {bar: 2, beat: 2, fraction: 0, bpm: 60, meter: 3});
+  assert.deepEqual(waveformBeatPosition(track, 4), {bar: 3, beat: 1, fraction: 0, bpm: 60, meter: 3});
+  assert.deepEqual(waveformBeats(track, 4, 4, {labels: true}), [{time: 4, major: true, bar: 3, beat: 1, label: '3'}]);
+});
+
+test('beat grid paints above loud audio and bar labels remain legible without overlapping', () => {
+  const {canvas, calls} = canvasFixture(600, 120, 2), wave = waveform(1200, 2);
+  for (const name of ['min', 'max', 'low', 'mid', 'high']) wave[name].fill(255);
+  const beats = waveformBeats({bpm: 600}, 0, 2, {labels: true});
+  drawWaveform(canvas, {waveform: wave, beats});
+  const lastAudio = calls.findLastIndex(call => call.color === WAVEFORM_COLORS.high);
+  const firstGrid = calls.findIndex(call => call.color === WAVEFORM_COLORS.beatMajor);
+  assert.ok(firstGrid > lastAudio);
+  assert.ok(waveformRects(calls, WAVEFORM_COLORS.beatMinor).length > 0);
+  const labels = calls.filter(call => call.type === 'text' && call.color === WAVEFORM_COLORS.beatLabel);
+  assert.ok(labels.length > 1);
+  for (let i = 1; i < labels.length; i++) assert.ok(labels[i].x > labels[i - 1].x + 12);
 });

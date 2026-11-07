@@ -184,3 +184,14 @@ test('scratch reanchors touch timestamps after the audio clock was interrupted',
   for (let block = 0; block < 16; block++) processor.process([], [output]);
   assert.ok(Math.abs(processor.position / 48000 - 1.1) < 0.000001);
 });
+
+test('fast reverse scratch suppresses point-sampling aliases while retaining low tones', async()=>{
+  const {processor}=await processorFrom('../dist/scratch-worklet.js');
+  const sampleRate=48000;
+  const level=(frequency,step)=>{
+    const pcm=Float32Array.from({length:16384},(_,i)=>Math.sin(2*Math.PI*frequency*i/sampleRate));
+    return rms(Array.from({length:1024},(_,i)=>processor._read(pcm,10000-i*4,step)));
+  };
+  assert.ok(level(14000,-4)<level(14000,0)*.25,'fast backspin must attenuate ultrasonic foldover');
+  assert.ok(Math.abs(level(1000,-4)-Math.SQRT1_2)<.04,'bass and low mids retain their level');
+});

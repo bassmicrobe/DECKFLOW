@@ -1,5 +1,7 @@
-import {normalizeRekordboxMetadata, normalizeFolderPath, parseRekordboxLocation} from './rekordbox-model.js?v=e321e49da3ca54c5';
-import {withOwnedAudio, readStoredAudio, deleteAudioChunks} from './audio-chunk-store.js?v=e321e49da3ca54c5';
+import {normalizeRekordboxMetadata, normalizeFolderPath, parseRekordboxLocation} from './rekordbox-model.js?v=af0e2156cf5d84be';
+import {withOwnedAudio, readStoredAudio, deleteAudioChunks} from './audio-chunk-store.js?v=af0e2156cf5d84be';
+import {isAudioReadSource, ownAudioReadSource} from './audio-read-source.js?v=af0e2156cf5d84be';
+import {normalizeTrackMetadata} from './track-metadata.js?v=af0e2156cf5d84be';
 /**
  * DECKFLOW local library. Metadata and encoded audio live in separate stores,
  * so listing a large library does not read every audio Blob into memory.
@@ -82,6 +84,7 @@ function normalizeTrack(input) {
     peaks: Array.from(peaks, value => finite(value, '波形データ', 0, 1)),
     confidence: finite(track.confidence ?? 0, '解析の信頼度', 0, 1),
     audioMissing: track.audioMissing ?? false,
+    ...normalizeTrackMetadata(track),
     ...normalizeRekordboxMetadata(track, duration),
   };
 }
@@ -140,13 +143,15 @@ export function validateLibrarySnapshot(input) {
 }
 
 /** An XML import adds new IDs only; existing edits and encoded audio stay intact. */
-function mergeImport(existingTracks, existingPlaylists, incomingTracks, incomingPlaylists) {
+function mergeImport(existingTracks, existingPlaylists, incomingTracks, incomingPlaylists, source = null) {
   const previous = new Map(existingTracks.map(track => [track.id, track]));
   const next = new Map(previous);
   for (const track of incomingTracks) {
     const existing = previous.get(track.id);
     if (existing) {
-      if (!existing.rekordbox || !track.rekordbox || existing.rekordbox.trackId !== track.rekordbox.trackId || parseRekordboxLocation(existing.rekordbox.location).identity !== parseRekordboxLocation(track.rekordbox.location).identity) {
+      const binding=source?.nativeUSB?.tracks?.[track.id];
+      const nativeReuse=binding?.audioPath && track.rekordbox && parseRekordboxLocation(track.rekordbox.location).path.normalize('NFC')===binding.audioPath.normalize('NFC');
+      if (!nativeReuse && (!existing.rekordbox || !track.rekordbox || existing.rekordbox.trackId !== track.rekordbox.trackId || parseRekordboxLocation(existing.rekordbox.location).identity !== parseRekordboxLocation(track.rekordbox.location).identity)) {
         invalid('曲IDが既存の別の曲と衝突しています。取り込みは保存していません。');
       }
     } else next.set(track.id, track);
@@ -154,6 +159,16 @@ function mergeImport(existingTracks, existingPlaylists, incomingTracks, incoming
   const playlistMap = new Map(existingPlaylists.map(playlist => [playlist.id, playlist]));
   const addedPlaylists = incomingPlaylists.filter(playlist => !playlistMap.has(playlist.id));
   for (const playlist of addedPlaylists) playlistMap.set(playlist.id, playlist);
+  for (const incoming of incomingPlaylists) {
+    const binding=source?.nativeUSB?.playlists?.[incoming.id], current=playlistMap.get(incoming.id);
+    if (!binding?.baseline || !current) continue;
+    const baseline=binding.baseline;
+    // Keep locally appended tracks while adopting the device's current list.
+    playlistMap.set(incoming.id,{...incoming,
+      name:current.name===baseline.name?incoming.name:current.name,
+      folderPath:JSON.stringify(current.folderPath??[])===JSON.stringify(baseline.folderPath??[])?incoming.folderPath:current.folderPath,
+      trackIds:[...new Set([...incoming.trackIds,...current.trackIds.filter(id=>!baseline.trackIds.includes(id))])]});
+  }
   if (next.size > MAX_TRACKS) invalid(`曲は${MAX_TRACKS}件以内で指定してください。`);
   const playlists = normalizePlaylists([...playlistMap.values()], new Set(next.keys()));
   return {tracks: [...next.values()], playlists, result: {
@@ -169,7 +184,7 @@ function validateImport(tracks, playlists) {
 }
 
 function checkBlob(blob) {
-  if (blob !== undefined && !(blob instanceof Blob)) invalid('保存する音源はBlobまたはFileで指定してください。');
+  if (blob !== undefined && !(blob instanceof Blob) && !isAudioReadSource(blob)) invalid('保存する音源はBlobまたはFileで指定してください。');
 }
 
 function mergeSources(existing, source) {
@@ -193,6 +208,7 @@ function editFields(input) {
 function editedTrackDetails(current, fields, playlistId, existingPlaylists) {
   if (!current) invalid('この曲は削除されています。画面を更新してください。');
   const track = normalizeTrack({...current, ...fields});
+  if (['title','artist','bpm'].some(field => track[field] !== current[field])) track.updatedAt = Date.now();
   const playlists = normalizePlaylists(existingPlaylists);
   if (playlistId == null || playlistId === '') return {track, playlists};
   identifier(playlistId, 'プレイリストID');
@@ -240,8 +256,9 @@ class MemoryLibrary {
     const track = normalizeTrack(metadata);
     checkBlob(blob);
     if (!this.tracks.has(track.id) && this.tracks.size >= MAX_TRACKS) throw trackLimitError();
+    const owned = isAudioReadSource(blob) ? await ownAudioReadSource(blob) : blob;
     this.tracks.set(track.id, track);
-    if (blob !== undefined) this.audio.set(track.id, blob);
+    if (owned !== undefined) this.audio.set(track.id, owned);
   }
   async updateTrackDetails(id, fields, playlistId = null) {
     identifier(id, '曲ID');
@@ -258,7 +275,7 @@ class MemoryLibrary {
   }
   async importTracks(tracks, playlists, source = null) {
     const candidate = validateImport(tracks, playlists);
-    const merged = mergeImport([...this.tracks.values()], this.playlists, candidate.tracks, candidate.playlists);
+    const merged = mergeImport([...this.tracks.values()], this.playlists, candidate.tracks, candidate.playlists, source);
     const sources = source == null ? this.sources : new Map(mergeSources([...this.sources.values()], clone(source)).map(item => [item.id, item]));
     this.tracks = new Map(merged.tracks.map(track => [track.id, track]));
     this.playlists = merged.playlists;
@@ -444,7 +461,7 @@ class IndexedLibrary {
       const commit = () => {
         if (!existingTracks || !existingPlaylists || !existingSources) return;
         try {
-          const merged = mergeImport(existingTracks.map(normalizeTrack), normalizePlaylists(existingPlaylists), candidate.tracks, candidate.playlists);
+          const merged = mergeImport(existingTracks.map(normalizeTrack), normalizePlaylists(existingPlaylists), candidate.tracks, candidate.playlists, sourceCandidate);
           const sources = sourceCandidate ? mergeSources(existingSources, sourceCandidate) : null;
           const existingIds = new Set(existingTracks.map(track => track.id));
           for (const track of merged.tracks) if (!existingIds.has(track.id)) trackStore.put(track);

@@ -1,8 +1,19 @@
-> 過去のネイティブ動作検証用コードです。現在のDECKFLOWの開発・提供対象はWebアプリ／PWAで、この構成の機能追加・配布は進めていません。
-
 # DECKFLOW for iPad
 
-SwiftUIのアプリにWeb版の画面と音声エンジンを同梱し、CoreMIDI入力を追加するiPad用シェルです。依存するSwiftパッケージはありません。
+SwiftUIのアプリにWeb版の画面と音声エンジンを同梱し、USBファイルアクセスとCoreMIDI入力を追加するiPad用シェルです。依存するSwiftパッケージはありません。
+
+## USBの直接読み書き
+
+Web画面の「USBを選択」からiPadOSのフォルダ選択画面を開き、USBのルートを指定します。`UIDocumentPickerViewController`のsecurity-scoped URL／bookmarkで権限を保持し、再接続時はbookmarkを復元します。許可済みUSBを画面表示中に3秒間隔で確認し、接続／切断と両ライブラリの有無をデバイス一覧に反映します。監視では音源フォルダーを走査せずDBをハッシュしません。Safari／PWAにはこのブリッジを注入しません。
+
+- メタデータ・音源・解析ファイルを読み取り、Web側のIndexedDBへ1 MiBずつキャッシュ。
+- HOT CUE A〜HをDAT／EXTとOneLibraryへ直接保存。元の音源・既存波形・グリッド・メモリーCUEを保持。
+- 既存USBへWAV／MP3・解析・プレイリストを追加。Device Library／OneLibraryを両方更新し、欠けた形式は既存音源を再利用して作成。Rust／WASM・SQLiteの生成処理はWeb側で実行。
+- 書き込み前のSHA-256照合、同一ボリューム上のステージング・バックアップ、アプリ内の復旧ジャーナル。
+- 中断後はユーザーが「中断した保存を復旧」を押してロールバック。ファイル単位の置換であり、USB全体の原子的更新ではありません。
+- パストラバーサル・シンボリックリンク・未許可origin／frameを拒否。音源のためのHTTP公開エンドポイントは追加しません。
+
+既存曲のBPM／メモリーCUE変更のUSB書き戻しは未対応です。未知のDBスキーマや別データが参照するCUEの削除などは変更前に停止します。実物のiPad／USB／CDJでの受入は未実施です。
 
 ## 実装済みの範囲
 
@@ -18,7 +29,7 @@ SwiftUIのアプリにWeb版の画面と音声エンジンを同梱し、CoreMID
 ## 未実装・未検証
 
 - 音声処理は引き続きWeb Audio／AudioWorkletです。AVAudioEngineによるネイティブ再生、ヘッドホンCUEとマスターの独立多チャンネル出力は実装していません。
-- iPadアプリからCDJ互換USBを直接作成する処理は実装していません。リポジトリのMac用USB書き出し補助ツールとは別の機能です。
+- USBの直接読み書きは上記の限定範囲で実装しています。CDJ-3000で認識・再生できることは実機で未確認です。
 - バックグラウンド再生を保証しません。画面を開いた状態で操作してください。
 - コントローラー実機の接続、iPad mini 8実機、低遅延性能、抜き差しや音声割り込みからの復帰は未検証です。
 - SimulatorのMIDIやWeb Audio確認は、実機での音質・遅延・電力・安定性の保証にはなりません。
@@ -72,6 +83,17 @@ xcodebuild \
 ```sh
 python3 native/ios/generate-project.py
 ```
+
+## USBファイル処理の検証
+
+USB媒体を使わず、一時フォルダで読み書き・変更競合・ロールバック・抜き差しの失敗注入・復旧・パス制限を確認できます。
+
+```sh
+python3 native/ios/DECKFLOWTests/run-store-tests.py
+node --test native/ios/DECKFLOWTests/NativeUSBBridge.test.mjs tests/native-usb-library.test.mjs
+```
+
+2026年11月7日の検証ではSwiftの実ストアソースを使った11件が成功しました。generic iOS Simulatorのbuild-for-testingも成功しています。Simulator上の今回のruntimeテストは起動待ちで停止したため実行未確認です。この結果を実物のUSBの書き戻し確認として扱いません。
 
 ## localhostを使う理由
 

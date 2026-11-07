@@ -10,8 +10,8 @@ class Node {
   }
   connect(node) {this.connections.add(node); return node;}
   disconnect() {this.connections.clear();}
-  start(_when, offset) {this.offset = offset;}
-  stop() {this.stopped = true;}
+  start(when, offset) {this.when = when; this.offset = offset;}
+  stop(when = 0) {this.stopWhen = when; this.stopped = true;}
   getFloatTimeDomainData(samples) {samples.fill(0);}
 }
 class Worklet extends Node {
@@ -363,4 +363,104 @@ test('file read failures stop the deck and stale reads cannot restore an unloade
     const pending = engine.play('a'); engine.unload('a'); await pending;
     assert.equal(engine.getState('a').loaded, false); assert.equal(engine.decks.a.source, null);
   } finally {engine.dispose();}
+});
+
+
+test('SYNC plus QUANTIZE schedules play on the master beat and keeps transport phase aligned', async () => {
+  const engine = new AudioEngine();
+  try {
+    for (const id of ['a','b']) engine.load(id, buffer());
+    engine.setBeatGrid('a', {bpm: 120, beatOffset: .1});
+    engine.setBeatGrid('b', {bpm: 100, beatOffset: .05});
+    engine.seek('a', .1); await engine.play('a'); engine.context.currentTime = .12;
+    engine.seek('b', .28); engine.setQuantize('b', true); engine.setSync('b', true);
+    await engine.play('b');
+    assert.equal(engine.decks.b.source.when, .5);
+    assert.equal(engine.decks.b.source.offset, .05);
+    assert.equal(engine.getState('b').scheduled, true);
+    engine.context.currentTime = .52;
+    const a = engine.getState('a'), b = engine.getState('b');
+    assert.ok(Math.abs(((a.position - .1) / .5 % 1) - ((b.position - .05) / .6 % 1)) < 1e-10);
+    assert.equal(b.scheduled, false);
+  } finally {engine.dispose();}
+});
+
+test('quantized HOT CUE keeps old playback until the beat, and pause cancels all queued sources', async () => {
+  const engine = new AudioEngine();
+  try {
+    for (const id of ['a','b']) {engine.load(id, buffer()); engine.setBeatGrid(id, {bpm: 120}); await engine.play(id);}
+    engine.setSync('b', true); engine.setQuantize('b', true); engine.context.currentTime = .12;
+    const old = engine.decks.b.source;
+    await engine.triggerCue('b', 2.13, {loop: {start: 2, end: 4}});
+    assert.equal(old.stopWhen, .5); assert.ok(old.connections.size > 0, 'old phrase remains connected until the audio clock cut');
+    assert.equal(engine.decks.b.source.when, .5); assert.equal(engine.decks.b.source.offset, 2);
+    assert.deepEqual(engine.getState('b').loop, {start: 2, end: 4});
+    engine.pause('b');
+    assert.equal(engine.getState('b').playing, false); assert.equal(engine.getState('b').scheduled, false);
+    assert.equal(old.connections.size, 0); assert.equal(engine.decks.b.retired.size, 0);
+  } finally {engine.dispose();}
+});
+
+test('QUANTIZE off starts immediately and manual tempo releases SYNC without resetting tempo', async () => {
+  const engine = new AudioEngine();
+  try {
+    for (const id of ['a','b']) {engine.load(id, buffer()); engine.setBeatGrid(id, {bpm: 120});}
+    await engine.play('a'); engine.context.currentTime = .123;
+    engine.setSync('b', true); engine.seek('b', .123); await engine.play('b');
+    assert.equal(engine.decks.b.source.when, 0); assert.equal(engine.decks.b.source.offset, .123);
+    engine.setRate('b', 1.1); assert.equal(engine.getState('b').sync, false);
+    engine.setSync('b', false); assert.equal(engine.getState('b').rate, 1.1);
+  } finally {engine.dispose();}
+});
+
+test('quantized starts respect upcoming variable-tempo anchors and master cancellation', async () => {
+  const engine = new AudioEngine();
+  try {
+    for (const id of ['a','b']) engine.load(id, buffer());
+    engine.setBeatGrid('a', {tempos:[{start:1,bpm:100},{start:0,bpm:120}]}); engine.setBeatGrid('b', {bpm:100});
+    await engine.play('a'); engine.context.currentTime=.92;
+    engine.setSync('b',true); engine.setQuantize('b',true); await engine.play('b');
+    assert.equal(engine.decks.b.source.when, 1); assert.equal(engine.getState('b').rate,1);
+    engine.pause('a'); assert.equal(engine.getState('b').playing,false); assert.equal(engine.getState('b').scheduled,false);
+  } finally {engine.dispose();}
+});
+
+test('phase sync explicitly bypasses both KEY LOCK delays while retaining requested preferences', async () => {
+  const statuses=[], engine=new AudioEngine({onStatus:status=>statuses.push(status)});
+  try {
+    for(const id of ['a','b']) {engine.load(id,buffer());engine.setBeatGrid(id,{bpm:120});engine.setRate(id,1.1);await engine.play(id);}
+    assert.ok(engine.decks.a.keyLockNode && engine.decks.b.keyLockNode);
+    engine.setSync('b',true); engine.setQuantize('b',true);
+    for(const id of ['a','b']) {
+      assert.equal(engine.decks[id].keyLockNode,null);
+      assert.equal(engine.getState(id).keyLockEffective,false);
+      assert.equal(engine.getState(id).keyLockRequested,true);
+      assert.match(engine.getState(id).keyLockBypassReason,/PITCH LINK/);
+    }
+    assert.equal(statuses.filter(status=>status.message?.includes('両デッキ')).length,1);
+    engine.setSync('b',false);
+    assert.ok(engine.decks.a.keyLockNode && engine.decks.b.keyLockNode);
+    assert.equal(engine.getState('a').keyLockBypassReason,null);
+  } finally {engine.dispose();}
+});
+
+test('SYNC followers follow master tempo edits and manual follower tempo releases the link',async()=>{
+ const engine=new AudioEngine();
+ try {
+  for(const id of ['a','b']) {engine.load(id,buffer());engine.setBeatGrid(id,{bpm:120});}
+  engine.setSync('b',true); engine.setRate('a',1.1);
+  assert.equal(engine.getState('b').rate,1.1); assert.equal(engine.getState('b').sync,true);
+  engine.setRate('b',.9); engine.setRate('a',1.2);
+  assert.equal(engine.getState('b').rate,.9); assert.equal(engine.getState('b').sync,false);
+ } finally {engine.dispose();}
+});
+
+test('quantized launch follows a master loop wrap instead of waiting for an unreachable grid beat',async()=>{
+ const engine=new AudioEngine();
+ try {
+  for(const id of ['a','b']) {engine.load(id,buffer());engine.setBeatGrid(id,{bpm:120});}
+  engine.seek('a',.1);engine.setLoop('a',.1,.6);await engine.play('a');engine.context.currentTime=.44;
+  engine.setSync('b',true);engine.setQuantize('b',true);await engine.play('b');
+  assert.ok(Math.abs(engine.decks.b.source.when-.9)<1e-10);
+ } finally {engine.dispose();}
 });

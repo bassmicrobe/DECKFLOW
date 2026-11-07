@@ -86,10 +86,32 @@ test('stream position, completion and playback settings come from the actual aud
   source.playbackRate.value = 1.25; source.loopStart = 123; source.loopEnd = 124; source.loop = true;
   await source.start(0, 123);
   assert.deepEqual(source.node.messages.find(message => message.type === 'start'),
-    {type: 'start', position: 123, rate: 1.25, loop: {start: 123, end: 124}});
+    {type: 'start', when: 0, position: 123, rate: 1.25, loop: {start: 123, end: 124}});
   source.node.emit({type: 'position', position: 123.5}); assert.equal(source.position, 123.5);
   source.node.emit({type: 'buffering', value: true}); assert.equal(source.buffering, true);
   let ended = 0; source.onended = () => {ended++;};
   source.node.emit({type: 'ended'});
   assert.equal(ended, 1); assert.equal(source.position, 6250); assert.equal(source.disposed, true);
+});
+
+test('prepare waits for audio-thread page readiness and stop cancels preparation', async () => {
+  const source=new PcmFileSource(context(),resource(async(_start,count)=>pcm(count)));
+  await source.ready;
+  let ready=false; const preparing=source.prepare(12).then(value=>{ready=value;return value;});
+  await flush(); assert.equal(ready,false);
+  const request=source.node.messages.find(message=>message.type==='prepare');
+  source.node.emit({type:'prepared',id:request.id});
+  assert.equal(await preparing,true);
+  const canceled=source.prepare(30); await flush(); source.stop();
+  assert.equal(await canceled,false);
+});
+
+test('file playhead extrapolates only from the audio clock and freezes during underruns', async () => {
+  const clock={...context(),currentTime:1};
+  const source=new PcmFileSource(clock,resource(async(_start,count)=>pcm(count)));
+  await source.start(2,10); clock.currentTime=1.5; assert.equal(source.position,10);
+  source.node.emit({type:'position',position:10.1,contextTime:2.1,buffering:false});
+  clock.currentTime=2.11; assert.ok(Math.abs(source.position-10.11)<1e-8);
+  source.node.emit({type:'buffering',value:true}); clock.currentTime=3;
+  assert.ok(Math.abs(source.position-10.11)<1e-8); source.stop();
 });

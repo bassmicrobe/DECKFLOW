@@ -1,4 +1,4 @@
-import {createPcmResampler} from './pcm-resampler.js?v=e321e49da3ca54c5';
+import {createPcmResampler} from './pcm-resampler.js?v=af0e2156cf5d84be';
 
 const PAGE_FRAMES = 32768;
 const registrations = new WeakMap();
@@ -9,7 +9,7 @@ async function register(context) {
     throw new Error('大容量音源の再生にはAudioWorklet対応ブラウザーとHTTPSまたはlocalhostが必要です。');
   }
   if (!registrations.has(context)) {
-    const promise = context.audioWorklet.addModule(new URL('./pcm-file-worklet.js?v=e321e49da3ca54c5', import.meta.url));
+    const promise = context.audioWorklet.addModule(new URL('./pcm-file-worklet.js?v=af0e2156cf5d84be', import.meta.url));
     registrations.set(context, promise);
     promise.catch(() => {if (registrations.get(context) === promise) registrations.delete(context);});
   }
@@ -28,14 +28,16 @@ export class PcmFileSource {
     this.node = null; this.connections = new Set();
     this.requests = new Map(); this.reading = false; this.disposed = false;
     this.generation = 0; this.wanted = new Set();
-    this.position = 0; this.buffering = false; this.started = false;
+    this.prepareId = 0; this.preparation = null;
+    this.position = 0; this.buffering = false; this.started = false; this.playingClock = false; this.scheduledAt = 0;
     this.onended = null; this.onerror = null; this.onposition = null;
     this.rate = 1; this._loop = false; this._loopStart = 0; this._loopEnd = resource.duration;
     const owner = this;
     this.playbackRate = {
       get value() {return owner.rate;},
       set value(value) {
-        owner.rate = value;
+        if (value === owner.rate) return;
+        owner.position = owner.position; owner.rate = value;
         if (owner.node && !owner.disposed) owner.send({type: 'rate', value,
           kernel: createPcmResampler(resource.sampleRate / context.sampleRate * value).kernel});
       },
@@ -45,7 +47,7 @@ export class PcmFileSource {
       onmessage: null,
       postMessage: message => {
         if (message.type === 'dispose') this.stop();
-        else if (message.type === 'begin') {this.position = message.position; this.started = true; this.send(message);}
+        else if (message.type === 'begin') {this.position = message.position; this.started = true; this.playingClock = false; this.send(message);}
         else this.send(message);
       },
       close: () => this.stop(),
@@ -70,6 +72,13 @@ export class PcmFileSource {
     for (const target of this.connections) node.connect(target);
     return true;
   }
+  get position() {
+    let position = this._position || 0;
+    if (this.playingClock && !this.buffering) position += Math.max(0, (this.context.currentTime || 0) - Math.max(this.positionTime, this.scheduledAt)) * this.rate;
+    if (this.playingClock && this._loop && position >= this._loopEnd && this._loopEnd > this._loopStart) position = this._loopStart + (position - this._loopStart) % (this._loopEnd - this._loopStart);
+    return Math.max(0, Math.min(this.resource.duration, position));
+  }
+  set position(value) {this._position = value; this.positionTime = this.context.currentTime || 0;}
   connect(target) {this.connections.add(target); this.node?.connect(target); return target;}
   disconnect() {this.connections.clear(); this.node?.disconnect();}
   send(message) {if (!this.disposed) this.node?.port.postMessage(message);}
@@ -81,16 +90,31 @@ export class PcmFileSource {
   set loopEnd(value) {this._loopEnd = value; this.updateLoop();}
   loopValue() {return this._loop ? {start: this._loopStart, end: this._loopEnd} : null;}
   updateLoop() {this.send({type: 'loop', loop: this.loopValue()});}
-  async start(_when, offset = 0) {
+  async prepare(offset = 0) {
+    if (!await this.ready || this.disposed) return false;
+    this.preparation?.resolve(false);
+    const id = ++this.prepareId;
+    this.position = offset; this.buffering = true;
+    return new Promise((resolve, reject) => {
+      this.preparation = {id, resolve, reject};
+      this.send({type: 'prepare', id, position: offset, rate: this.rate, loop: this.loopValue()});
+    });
+  }
+  async start(when = 0, offset = 0) {
     this.position = offset;
     if (!await this.ready || this.disposed) return false;
-    this.started = true;
-    this.send({type: 'start', position: offset, rate: this.rate, loop: this.loopValue()});
+    this.started = true; this.buffering = true; this.playingClock = true; this.scheduledAt = Math.max(this.context.currentTime || 0, when); this.positionTime = this.scheduledAt;
+    this.send({type: 'start', when, position: offset, rate: this.rate, loop: this.loopValue()});
     return true;
   }
   message(data) {
     if (this.disposed) return;
-    if (data?.type === 'request') {
+    if (data?.type === 'prepared') {
+      if (data.id === this.preparation?.id) {
+        const {resolve} = this.preparation; this.preparation = null; this.buffering = false; resolve(true);
+      }
+    } else if (data?.type === 'stopped') {this.onended?.(); this.stop();}
+    else if (data?.type === 'request') {
       if (!Number.isSafeInteger(data.index) || data.index < 0 || data.index * PAGE_FRAMES >= this.resource.length) return;
       if (data.generation < this.generation) return;
       if (data.generation !== this.generation) {this.generation = data.generation; this.requests.clear();}
@@ -100,10 +124,13 @@ export class PcmFileSource {
       void this.drain();
     } else if (data?.type === 'position' && Number.isFinite(data.position)) {
       this.position = Math.max(0, Math.min(this.resource.duration, data.position));
+      if (Number.isFinite(data.contextTime)) this.positionTime = data.contextTime;
+      if (typeof data.buffering === 'boolean') this.buffering = data.buffering;
       this.onposition?.(this.position);
       this.port.onmessage?.({data});
-    } else if (data?.type === 'buffering') this.buffering = Boolean(data.value);
+    } else if (data?.type === 'buffering') {this.position = this.position; this.buffering = Boolean(data.value);}
     else if (data?.type === 'ended') {
+      this.playingClock = false;
       this.position = this.resource.duration;
       this.onended?.(); this.stop();
     }
@@ -131,12 +158,15 @@ export class PcmFileSource {
   }
   fail(error) {
     if (this.disposed) return;
+    this.preparation?.reject(error); this.preparation = null;
     this.stop();
     this.onerror?.(error);
   }
-  stop() {
+  stop(when = 0) {
     if (this.disposed) return;
-    this.disposed = true;
+    if (Number.isFinite(when) && when > (this.context.currentTime || 0)) {this.send({type: 'stopAt', when}); return;}
+    this.preparation?.resolve(false); this.preparation = null;
+    this.position = this.position; this.playingClock = false; this.disposed = true;
     this.requests.clear(); this.wanted.clear(); this.connections.clear();
     if (this.node) {
       this.node.port.postMessage({type: 'dispose'});

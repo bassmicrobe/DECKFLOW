@@ -61,7 +61,14 @@ class DeckflowScratchProcessor extends AudioWorkletProcessor {
     return Math.max(0, Math.min(limit, (Number.isFinite(seconds) ? seconds : 0) * this.sourceRate));
   }
 
-  _read(channel, position) {
+  _read(channel, position, movement = 0) {
+    const width = Math.abs(movement);
+    if (width > 1.000001) {
+      const count = Math.min(32, Math.ceil(width)); let sum = 0;
+      for (let sample = 0; sample < count; sample++) sum += this._read(channel,
+        Math.max(0, Math.min(channel.length - 1, position + ((sample + .5) / count - .5) * width)));
+      return sum / count;
+    }
     // Cubic Hermite interpolation handles fractional frames in either direction.
     const index = Math.floor(position);
     const fraction = position - index;
@@ -107,7 +114,7 @@ class DeckflowScratchProcessor extends AudioWorkletProcessor {
       this.amplitude += (targetAmplitude - this.amplitude) * amplitudeSmoothing;
       for (let channel = 0; channel < output.length; channel++) {
         const pcm = this.channels[Math.min(channel, this.channels.length - 1)];
-        const sample = this._read(pcm, this.position) * this.amplitude;
+        const sample = this._read(pcm, this.position, this.velocity) * this.amplitude;
         output[channel][frame] = Number.isFinite(sample) ? Math.max(-1, Math.min(1, sample)) : 0;
       }
     }

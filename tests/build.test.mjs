@@ -48,6 +48,22 @@ async function output(root){
   return {html,manifest,sw,modules};
 }
 const moduleVersion=result=>new URL(/src="([^"]*app\.js[^"]*)"/.exec(result.html)[1],'https://deckflow.test/').searchParams.get('v');
+test('WASM bytes are versioned, cached offline and invalidate their importing module',async()=>{
+  await fixture(async root=>{
+    const wasm=join(root,'dist/engine.wasm');
+    await writeFile(wasm,Buffer.from([0,97,115,109,1,0,0,0]));
+    const app=join(root,'dist/app.js');
+    await writeFile(app,(await readFile(app,'utf8'))+"\nexport const binary=new URL('./engine.wasm',import.meta.url);");
+    assert.equal(build(root).status,0);const first=await output(root);
+    assert.ok(first.modules['app.js'].includes(`engine.wasm?v=${digest(await readFile(wasm))}`));
+    assert.ok(first.sw.includes(`./engine.wasm?v=${digest(await readFile(wasm))}`));
+    assert.equal(build(root).status,0);assert.deepEqual(await output(root),first);
+    await writeFile(wasm,Buffer.from([0,97,115,109,1,0,0,0,0,1,0]));
+    assert.equal(build(root).status,0);const second=await output(root);
+    assert.notEqual(moduleVersion(first),moduleVersion(second));
+    assert.ok(second.modules['app.js'].includes(`engine.wasm?v=${digest(await readFile(wasm))}`));
+  });
+});
 async function verifyReferences(root,result){
   const urls=[...result.html.matchAll(/(?:href|src)="([^"]+)"/g)].map(match=>match[1].replaceAll('&amp;','&'));
   urls.push(...JSON.parse(result.manifest).icons.map(icon=>icon.src));

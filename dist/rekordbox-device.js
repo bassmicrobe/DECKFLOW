@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-import {validateLibrarySnapshot} from './library-store.js?v=e321e49da3ca54c5';
-import {parseRekordboxLocation} from './rekordbox-model.js?v=e321e49da3ca54c5';
+import {validateLibrarySnapshot} from './library-store.js?v=af0e2156cf5d84be';
+import {parseRekordboxLocation} from './rekordbox-model.js?v=af0e2156cf5d84be';
 
 const PAGE = 4096, MAX_DATABASE = 128 * 1024 * 1024, MAX_ANALYSIS = 32 * 1024 * 1024;
 const fail = (detail = '') => { throw new Error(`Device Libraryを読み取れません。${detail}`); };
@@ -127,6 +127,8 @@ export function parseDeviceDatabase(bytes, {sourceId = 'device'} = {}) {
     if (![0x60, 0x64].includes(subtype) || !id || artists.has(id)) fail('アーティストの形式が不正です。');
     artists.set(id, text(deviceString(row, subtype & 4 ? u16(row, 10) : row[9]), 180));
   }
+  const named = (type, idAt, nameAt) => new Map([...tableRows(bytes, tables, type, 10000)].map(row => [u32(row, idAt), deviceString(row, typeof nameAt === 'function' ? nameAt(row) : nameAt)]));
+  const genres = named(1, 0, 4), albums = named(3, 12, row => row[21]), keys = named(5, 0, 8), labels = named(4, 0, 4);
   const tracks = [], entries = [], trackIds = new Map(), namespace = hash(sourceId);
   for (const row of tableRows(bytes, tables, 0, 10000)) {
     if (row.length < 136 || u16(row, 0) !== 0x24) fail('対応していない楽曲行です。');
@@ -143,6 +145,11 @@ export function parseDeviceDatabase(bytes, {sourceId = 'device'} = {}) {
     const track = {id, title: text(string(17) || filename, 180, false), artist: artists.get(artistId) ?? '',
       bpm: rawBpm >= 30 && rawBpm <= 300 ? rawBpm : null, duration, beatOffset: 0, cue: 0,
       hotcues: Array(8).fill(null), filename, fingerprint: '', addedAt: 0, peaks: [], confidence: 0,
+      album:albums.get(u32(row,64)) || '', genre:genres.get(u32(row,60)) || '', key:keys.get(u32(row,32)) || '',
+      label:labels.get(u32(row,40)) || '', composer:artists.get(u32(row,12)) || '', remixer:artists.get(u32(row,44)) || '',
+      mix:string(12), comments:string(16), dateAdded:string(15), dateCreated:string(10),
+      sampleRate:u32(row,8), bitRate:u32(row,48), bitDepth:u16(row,82), rating:Math.min(5,row[89]),
+      trackNumber:u32(row,52), discNumber:u16(row,76), playCount:u16(row,78), year:u16(row,80),
       audioMissing: true, rekordbox: {trackId: String(rawId), location, size: u32(row, 16) || null}};
     tracks.push(track); entries.push({trackId: id, sourcePath: path, analysisPath}); trackIds.set(rawId, id);
   }
@@ -167,17 +174,20 @@ export function parseDeviceDatabase(bytes, {sourceId = 'device'} = {}) {
     }
     return names;
   };
-  const playlists = [];
+  const playlists = [], playlistEntries = [];
   for (const node of [...nodes.values()].sort((a, b) => a.order - b.order || a.id - b.id)) {
     const folders = folderPath(node);
     if (node.folder) continue;
-    const references = node.entries.sort((a, b) => a.order - b.order).map(entry => entry.trackId);
-    if (new Set(references).size !== references.length || new Set(node.entries.map(entry => entry.order)).size !== references.length) fail('プレイリストの曲または曲順が重複しています。');
+    const ordered = node.entries.sort((a, b) => a.order - b.order).map(entry => entry.trackId);
+    if (new Set(node.entries.map(entry => entry.order)).size !== ordered.length) fail('プレイリストの曲順が重複しています。');
+    const references=[...new Set(ordered)];
+    if(references.length!==ordered.length) warnings.push(`「${node.name}」の重複曲を画面ではまとめています。USBの元の曲順と重複は保持します。`);
     // A changed playlist imports as a new snapshot; user-edited previous lists survive.
     playlists.push({id: `usb-pl-${namespace}-${node.id}-${hash(JSON.stringify([folders, node.name, references]))}`, name: node.name, folderPath: folders, trackIds: references});
+    playlistEntries.push({localId:playlists.at(-1).id, deviceId:node.id});
   }
   const checked = validateLibrarySnapshot({format: 'deckflow.library', version: 1, tracks, playlists});
-  return {...checked, entries, warnings};
+  return {...checked, entries, playlistEntries, warnings};
 }
 
 function peaksOf(values, count, valueAt) {

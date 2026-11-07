@@ -1,5 +1,5 @@
-import {databaseBytes, sourceDigest, sourceFileStamp, normalizeSourcePath} from './library-source.js?v=e321e49da3ca54c5';
-import {isAudioFile} from './file-drop.js?v=e321e49da3ca54c5';
+import {databaseBytes, sourceDigest, sourceFileStamp, normalizeSourcePath} from './library-source.js?v=af0e2156cf5d84be';
+import {isAudioFile} from './file-drop.js?v=af0e2156cf5d84be';
 const pause = () => new Promise(resolve=>setTimeout(resolve,0));
 const preparation = track => JSON.stringify({bpm:track.bpm,beatOffset:track.beatOffset||0,cue:track.cue||0,
   hotcues:track.hotcues??Array(8).fill(null),tempos:track.tempos??[],positionMarks:track.positionMarks??[]});
@@ -35,15 +35,17 @@ function sourceBindings(index,entries,signal){
   return bindings;
 }
 /** Additive, read-only import. Metadata opens first; audio is copied encoded, never decoded here. */
-export async function cacheSourceLibrary({library,index,candidate,sources=[],sourceId,reader,signal,saveTrack,onProgress=()=>{},onTrack=()=>{},onMetadata=()=>{}}) {
+export async function cacheSourceLibrary({library,index,candidate,sources=[],sourceId,reader,signal,saveTrack,transformParsed,sourceExtras={},onProgress=()=>{},onTrack=()=>{},onMetadata=()=>{}}) {
   signal?.throwIfAborted(); onProgress('データベースを確認しています…');
   const bytes=await databaseBytes(index,candidate), digest=await sourceDigest(bytes);
   signal?.throwIfAborted();
   let previous=sourceId?sources.find(source=>source.id===sourceId):sources.find(source=>source.digest===digest && source.databasePath===candidate.path);
   if (sourceId && !previous) throw new Error('更新するライブラリが見つかりません。新しく開いてください。');
   const id=previous?.id || crypto.randomUUID();
-  const cached=previous?.cacheVersion===1 && previous?.digest===digest && previous?.parsed;
-  const parsed=cached?previous.parsed:await reader.read('database',{kind:candidate.kind,bytes,sourceId:id,databaseKind:candidate.kind==='sqlite'?(candidate.path.toLowerCase().endsWith('/master.db')||candidate.path.toLowerCase()==='master.db'?'master':'device'):undefined},[bytes.buffer]);
+  const cached=previous?.cacheVersion===2 && previous?.digest===digest && previous?.parsed;
+  let parsed=cached?previous.parsed:await reader.read('database',{kind:candidate.kind,bytes,sourceId:id,databaseKind:candidate.kind==='sqlite'?(candidate.path.toLowerCase().endsWith('/master.db')||candidate.path.toLowerCase()==='master.db'?'master':'device'):undefined},[bytes.buffer]);
+  if (transformParsed) parsed=await transformParsed(structuredClone(parsed),{sourceId:id});
+  const incomingById=new Map(parsed.tracks.map(track=>[track.id,track]));
   signal?.throwIfAborted();
   const bindings=sourceBindings(index,parsed.entries,signal);
   const existing=new Map((await library.getTracks()).map(track=>[track.id,track]));
@@ -58,8 +60,8 @@ export async function cacheSourceLibrary({library,index,candidate,sources=[],sou
     const result=stored??next;existing.set(result.id,result);onTrack(result);return result;
   };
   signal?.throwIfAborted();
-  const source={id,cacheVersion:1,label:index.label,databasePath:candidate.path,kind:candidate.kind,digest,parsed,trackIds:parsed.tracks.map(track=>track.id),audioStamps:{...previous?.audioStamps},
-    analysisExtensions:{...previous?.analysisExtensions},preparationHashes:{...previous?.preparationHashes},updatedAt:Date.now(),cachedAudio:0};
+  const source={id,cacheVersion:2,label:index.label,databasePath:candidate.path,kind:candidate.kind,digest,parsed,trackIds:parsed.tracks.map(track=>track.id),audioStamps:{...previous?.audioStamps},
+    analysisExtensions:{...previous?.analysisExtensions},preparationHashes:{...previous?.preparationHashes},updatedAt:Date.now(),cachedAudio:0,...sourceExtras};
   // Register the source and its metadata together. A full source list or a
   // failed reference write must not leave orphan tracks before audio copying.
   const imported=await library.importTracks(parsed.tracks,parsed.playlists,source);
@@ -72,6 +74,14 @@ export async function cacheSourceLibrary({library,index,candidate,sources=[],sou
     for (const entry of parsed.entries) {
       signal?.throwIfAborted();
       let track=existing.get(entry.trackId); if (!track) continue;
+      // Upgrade older caches with source metadata that previous app versions
+      // did not store. Reading/caching never stamps a local modification date.
+      const incoming=incomingById.get(track.id),details={};
+      for(const field of ['album','genre','key','label','composer','remixer','mix','comments','fileType','rating','bitRate','sampleRate','bitDepth','year','trackNumber','discNumber','playCount','dateAdded','dateCreated']) {
+        if((track[field]===undefined||track[field]==='')&&incoming?.[field]!==undefined&&incoming[field]!==track[field])details[field]=incoming[field];
+      }
+      if(incoming?.dateModified&&incoming.dateModified!==track.dateModified)details.dateModified=incoming.dateModified;
+      if(Object.keys(details).length){track=await persist({...track,...details},undefined,track);if(!track)continue;}
       onProgress(`音源をキャッシュ ${++count} / ${parsed.entries.length} — ${track.title}`);
       const binding=bindings.get(entry.trackId),availableAnalysis=binding.analyses;
       if(binding.audioAmbiguous)result.warnings.push(`${track.title}: 異なる元音源のパスが同じ選択ファイルに対応するため、自動接続しませんでした。元のフォルダ構成で選び直してください。`);
@@ -126,7 +136,7 @@ export async function cacheSourceLibrary({library,index,candidate,sources=[],sou
       }
       if (count%10===0) await pause();
     }
-    return result;
+    return {...result,source};
   } finally {
     source.cachedAudio=source.trackIds.filter(id=>existing.get(id)?.audioMissing===false).length;
     source.updatedAt=Date.now();await library.putSource(source);

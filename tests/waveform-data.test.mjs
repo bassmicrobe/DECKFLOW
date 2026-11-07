@@ -8,7 +8,7 @@ const peak = array => array.reduce((max, value) => Math.max(max, value), 0);
 test('short transients, both polarities and the final sample survive 150 Hz envelopes', () => {
   const samples = new Float32Array(sr);
   samples[800] = 0.8; samples[880] = -0.6; samples[samples.length - 1] = 1;
-  const result = buildWaveform([samples], sr);
+  const result = buildWaveform([samples], sr, {framesPerSecond: 150});
   assert.equal(result.frameCount, 150);
   assert.equal(result.framesPerSecond, 150);
   assert.equal(result.max[10], 204);
@@ -63,7 +63,7 @@ test('limited frame budgets cover the complete track and expose reduced resoluti
   const samples = new Float32Array(sr * 4); samples[samples.length - 1] = -1;
   const result = buildWaveform([samples], sr, {maxFrames: 80});
   assert.equal(result.frameCount, 80); assert.equal(result.framesPerSecond, 20);
-  assert.equal(result.requestedFramesPerSecond, 150); assert.equal(result.reducedResolution, true);
+  assert.equal(result.requestedFramesPerSecond, 600); assert.equal(result.reducedResolution, true);
   assert.equal(result.min[79], 255);
 });
 
@@ -74,8 +74,19 @@ test('rejects incomplete chunks, invalid formats and malformed cache envelopes',
   assert.throws(() => buildWaveform([], sr), /channels/);
   assert.throws(() => waveformDimensions({length: 3, numberOfChannels: 0, sampleRate: sr}), /channels/);
   assert.throws(() => buildWaveform([new Float32Array(3)], 0), /rate/);
-  assert.throws(() => buildWaveform([new Float32Array(3)], sr, {maxFrames: 300001}), /limit/);
+  assert.throws(() => buildWaveform([new Float32Array(3)], sr, {maxFrames: 600001}), /limit/);
   const result = buildWaveform([new Float32Array(sr)], sr);
   assert.equal(validateWaveform(result), result);
   for (const patch of [{version: 2}, {frameCount: 0}, {low: []}, {min: new Uint8Array(3)}, {framesPerSecond: NaN}, {duration: Infinity}, {reducedResolution: true}]) assert.throws(() => validateWaveform({...result, ...patch}));
+});
+
+test('default detail resolves close real transients without inventing intermediate audio', () => {
+  const samples = new Float32Array(sr * 2);
+  samples[21] = .8; samples[65] = .6;
+  const wave = buildWaveform([samples], sr);
+  assert.equal(wave.frameCount, 1200);
+  assert.equal(wave.framesPerSecond, 600);
+  assert.equal(wave.max[1], 204); assert.equal(wave.max[3], 153);
+  assert.equal(wave.max[0], 0); assert.equal(wave.max[2], 0);
+  assert.equal(waveformBytes(wave), 6000);
 });
