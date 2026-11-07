@@ -1,4 +1,4 @@
-import {DEFAULT_WAVEFORM_FPS, MAX_WAVEFORM_FRAMES, WAVEFORM_VERSION, validateWaveform, waveformBytes, waveformDimensions} from './waveform-data.js?v=15d483d12b5c45ed';
+import {DEFAULT_WAVEFORM_FPS, MAX_WAVEFORM_FRAMES, WAVEFORM_VERSION, validateWaveform, waveformBytes, waveformDimensions} from './waveform-data.js?v=e321e49da3ca54c5';
 
 const DEFAULT_BYTES = 16 * 1024 * 1024;
 const DISK_BYTES = 32 * 1024 * 1024;
@@ -15,7 +15,7 @@ export class WaveformCache {
     persistentBytes = DISK_BYTES, persistentEntries = 128, framesPerSecond = DEFAULT_WAVEFORM_FPS,
     maxFrames = MAX_WAVEFORM_FRAMES, chunkSamples = 32768, timeoutMs = 120000,
     indexedDB = globalThis.indexedDB,
-    workerFactory = () => new Worker(new URL('./waveform-worker.js?v=15d483d12b5c45ed', import.meta.url), {type: 'module'}),
+    workerFactory = () => new Worker(new URL('./waveform-worker.js?v=e321e49da3ca54c5', import.meta.url), {type: 'module'}),
   } = {}) {
     this.maxBytes = natural(maxBytes, 'RAM limit');
     this.maxEntries = natural(maxEntries, 'RAM entries');

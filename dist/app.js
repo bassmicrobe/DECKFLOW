@@ -1,22 +1,23 @@
-import {createAnalysisInput} from './analysis-input.js?v=15d483d12b5c45ed';
-import {isPcmFileResource} from './audio-resource.js?v=15d483d12b5c45ed';
-import {analyzeAudioResource,audioResourcePeaks} from './audio-resource-analysis.js?v=15d483d12b5c45ed';
-import {bindTouchSlider} from './touch-slider.js?v=15d483d12b5c45ed';
-import {bindPlatterGesture} from './platter-gesture.js?v=15d483d12b5c45ed';
-import {AudioEngine} from './audio-engine.js?v=15d483d12b5c45ed';
-import {MappingManager} from './mappings.js?v=15d483d12b5c45ed';
-import {openLibrary} from './library-store.js?v=15d483d12b5c45ed';
-import {validateUsbLibrary} from './usb-export.js?v=15d483d12b5c45ed';
-import {createTrackQueue} from './track-updates.js?v=15d483d12b5c45ed';
-import {installFileDrop,isAudioFile} from './file-drop.js?v=15d483d12b5c45ed';
-import {PreviewPlayer} from './preview-player.js?v=15d483d12b5c45ed';
-import {AudioBufferCache} from './audio-buffer-cache.js?v=15d483d12b5c45ed';
-import {WaveformCache} from './waveform-cache.js?v=15d483d12b5c45ed';
-import {drawWaveform,getWaveformWindow,timeAtWaveformX,waveformBeats} from './waveform-view.js?v=15d483d12b5c45ed';
-import {indexFileList,indexDirectory,createSourceIndex,databaseCandidates,createLibraryReader} from './library-source.js?v=15d483d12b5c45ed';
-import {cacheSourceLibrary} from './source-import.js?v=15d483d12b5c45ed';
-import {parseRekordboxXml} from './rekordbox-import.js?v=15d483d12b5c45ed';
-import {findImportedAudio,audioPeaks,tempoAt,advanceBeats,relinkMetadata} from './import-audio.js?v=15d483d12b5c45ed';
+import {installMotion} from './ui-motion.js?v=e321e49da3ca54c5';
+import {createAnalysisInput} from './analysis-input.js?v=e321e49da3ca54c5';
+import {isPcmFileResource} from './audio-resource.js?v=e321e49da3ca54c5';
+import {analyzeAudioResource,audioResourcePeaks} from './audio-resource-analysis.js?v=e321e49da3ca54c5';
+import {bindTouchSlider} from './touch-slider.js?v=e321e49da3ca54c5';
+import {bindPlatterGesture} from './platter-gesture.js?v=e321e49da3ca54c5';
+import {AudioEngine} from './audio-engine.js?v=e321e49da3ca54c5';
+import {MappingManager} from './mappings.js?v=e321e49da3ca54c5';
+import {openLibrary} from './library-store.js?v=e321e49da3ca54c5';
+import {validateUsbLibrary} from './usb-export.js?v=e321e49da3ca54c5';
+import {createTrackQueue} from './track-updates.js?v=e321e49da3ca54c5';
+import {installFileDrop,isAudioFile} from './file-drop.js?v=e321e49da3ca54c5';
+import {PreviewPlayer} from './preview-player.js?v=e321e49da3ca54c5';
+import {AudioBufferCache} from './audio-buffer-cache.js?v=e321e49da3ca54c5';
+import {WaveformCache} from './waveform-cache.js?v=e321e49da3ca54c5';
+import {drawWaveform,getWaveformWindow,timeAtWaveformX,waveformBeats} from './waveform-view.js?v=e321e49da3ca54c5';
+import {indexFileList,indexDirectory,createSourceIndex,databaseCandidates,createLibraryReader} from './library-source.js?v=e321e49da3ca54c5';
+import {cacheSourceLibrary} from './source-import.js?v=e321e49da3ca54c5';
+import {parseRekordboxXml} from './rekordbox-import.js?v=e321e49da3ca54c5';
+import {findImportedAudio,audioPeaks,tempoAt,advanceBeats,relinkMetadata} from './import-audio.js?v=e321e49da3ca54c5';
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -331,7 +332,7 @@ function analyze(buffer,onProgress=()=>{}){
 }
 function analyzeInput(samples,sampleRate){
   return new Promise((resolve,reject)=>{
-    if(!worker){worker=new Worker(new URL('./analysis-worker.js?v=15d483d12b5c45ed',import.meta.url),{type:'module'});worker.onmessage=({data})=>{const entry=pendingAnalysis.get(data.id);if(!entry)return;pendingAnalysis.delete(data.id);clearTimeout(entry.timer);data.error?entry.reject(new Error(data.error)):entry.resolve(data.result);};worker.onerror=()=>{for(const entry of pendingAnalysis.values()){clearTimeout(entry.timer);entry.reject(new Error('解析処理を開始できませんでした。ページを再読み込みしてください。'));}pendingAnalysis.clear();worker.terminate();worker=null;};}
+    if(!worker){worker=new Worker(new URL('./analysis-worker.js?v=e321e49da3ca54c5',import.meta.url),{type:'module'});worker.onmessage=({data})=>{const entry=pendingAnalysis.get(data.id);if(!entry)return;pendingAnalysis.delete(data.id);clearTimeout(entry.timer);data.error?entry.reject(new Error(data.error)):entry.resolve(data.result);};worker.onerror=()=>{for(const entry of pendingAnalysis.values()){clearTimeout(entry.timer);entry.reject(new Error('解析処理を開始できませんでした。ページを再読み込みしてください。'));}pendingAnalysis.clear();worker.terminate();worker=null;};}
     const id=++analysisId;const timer=setTimeout(()=>{pendingAnalysis.delete(id);reject(new Error('解析処理が応答しません。もう一度お試しください。'));},90000);
     pendingAnalysis.set(id,{resolve,reject,timer});worker.postMessage({id,samples,sampleRate},[samples.buffer]);
   });
@@ -433,7 +434,7 @@ function renderSources(){
   const trackIds=new Set(tracks.filter(track=>!track.audioMissing).map(track=>track.id));
   const savedCount=source=>source.trackIds.filter(id=>existingIds.has(id)).length;
   $('#saved-source-list').innerHTML=sources.length?sources.map(source=>`<div class="saved-source"><div><strong>${escapeHTML(source.label)}</strong><small>${savedCount(source)}曲 · 音源保存 ${source.trackIds.filter(id=>trackIds.has(id)).length}曲</small></div><div class="saved-source-actions"><button class="button subtle compact" data-source-view="${escapeHTML(source.id)}">開く</button><button class="text-button" data-source-refresh="${escapeHTML(source.id)}">再読み込み</button><button class="text-button" data-source-forget="${escapeHTML(source.id)}" aria-label="${escapeHTML(source.label)}の参照だけ一覧から外す">一覧から外す</button></div></div>`).join(''):'<p class="source-note">まだ保存したライブラリはありません。</p>';
-  const nav=$('#source-nav-list');if(nav)nav.innerHTML=sources.map(source=>`<button class="source-nav-button" data-source-view="${escapeHTML(source.id)}"><span>${escapeHTML(source.label)}</span><small>${savedCount(source)}</small></button>`).join('')||'<p class="source-note">フォルダやUSBから追加できます。</p>';
+  const nav=$('#source-nav-list');if(nav)nav.innerHTML=sources.map(source=>`<button class="source-nav-button" data-source-view="${escapeHTML(source.id)}"><span>${escapeHTML(source.label)}</span><small>${savedCount(source)}</small></button>`).join('')||'<p class="source-note">未追加</p>';
 }
 function openSources(reset=true){
   if(!importing){if(reset)refreshSourceId=null;selectedSourceIndex=null;selectedCandidates=[];$('#source-selection').hidden=true;$('#source-database').innerHTML='';$('#source-progress').textContent='';}
@@ -597,11 +598,11 @@ function events(){
 }
 
 async function start(){
-  renderDecks();events();setView('library');renderMappings();renderMIDIStatus();
+  renderDecks();events();setView('library');renderMappings();renderMIDIStatus();installMotion(document);
   for(const id of ['a','b']){mapping.setActionValue(`${id}.tempo`,.5);mapping.setActionValue(`${id}.volume`,.85);for(const band of ['low','mid','high'])mapping.setActionValue(`${id}.eq.${band}`,24/36);}
   mapping.setActionValue('mixer.crossfader',.5);mapping.setActionValue('mixer.master',.8);
   library=await openLibrary();[tracks,playlists,sources]=await Promise.all([library.getTracks(),library.getPlaylists(),library.getSources()]);renderSources();renderLibrary();updateDecks();await storageInfo();if(library.warning)toast(library.warning);
-  if(window.DECKFLOW_NATIVE){$('.mapping-note').textContent='iPadアプリではCoreMIDIで接続した機材を学習できます。音量・EQなどの連続操作はMIDI、キーはボタン操作に対応します。物理機材の互換性とヘッドホンCUEの独立出力は実機確認が必要です。';}
+  if(window.DECKFLOW_NATIVE){$('.mapping-note').textContent='CoreMIDI対応。連続操作はMIDI、ボタン操作はMIDI・キーに対応。';}
   if('serviceWorker'in navigator&&!window.DECKFLOW_NATIVE)navigator.serviceWorker.register('./sw.js').catch(error=>console.warn('Offline cache unavailable',error));
   requestAnimationFrame(animate);
 }

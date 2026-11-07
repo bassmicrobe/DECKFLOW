@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {drawWaveform, getWaveformWindow, timeAtWaveformX, waveformBeats} from '../dist/waveform-view.js';
+import {WAVEFORM_COLORS, drawWaveform, getWaveformWindow, timeAtWaveformX, waveformBeats} from '../dist/waveform-view.js';
 
 function canvasFixture(width = 10, height = 100, dpr = 1) {
   const calls = [], rect = {width, height};
@@ -21,7 +21,7 @@ function waveform(count, duration) {
     min: new Uint8Array(count), max: new Uint8Array(count),
     low: new Uint8Array(count), mid: new Uint8Array(count), high: new Uint8Array(count)};
 }
-const waveformRects = (calls, color = '#ef535b') => calls.filter(call => call.type === 'rect' && call.color === color);
+const waveformRects = (calls, color = WAVEFORM_COLORS.low) => calls.filter(call => call.type === 'rect' && call.color === color);
 const close = (a, b) => assert.ok(Math.abs(a - b) < .00001, `${a} ≠ ${b}`);
 
 test('centered detail windows retain their span at track edges', () => {
@@ -149,13 +149,13 @@ test('asymmetric positive and negative peaks retain their actual envelope', () =
   close(bar.height, (128 / 255 + 1) * 43);
 });
 
-test('frequency layers use red, gray and white and silence stays silent', () => {
+test('frequency layers use the low, mid and high palette and silence stays silent', () => {
   const {canvas, calls} = canvasFixture(2);
   const wave = waveform(2, 1);
   wave.min[0] = wave.max[0] = 255;
   wave.low[0] = 200; wave.mid[0] = 120; wave.high[0] = 40;
   drawWaveform(canvas, {waveform: wave});
-  const low = waveformRects(calls, '#ef535b'), mid = waveformRects(calls, '#a8a8a8'), high = waveformRects(calls, '#f2f2f2');
+  const low = waveformRects(calls, WAVEFORM_COLORS.low), mid = waveformRects(calls, WAVEFORM_COLORS.mid), high = waveformRects(calls, WAVEFORM_COLORS.high);
   assert.equal(low.length, 1); assert.equal(mid.length, 1); assert.equal(high.length, 1);
   assert.equal(low[0].x, 0); assert.ok(low[0].height > mid[0].height); assert.ok(mid[0].height > high[0].height);
 });
@@ -166,7 +166,7 @@ test('legacy peaks retain brief transients without slicing or spreading arrays',
   peaks[49_999] = 1; peaks[99_999] = .5;
   peaks.slice = () => { throw new Error('Do not slice waveform data'); };
   drawWaveform(canvas, {peaks, duration: 100});
-  assert.deepEqual(waveformRects(calls).map(bar => bar.height), [86, 43]);
+  assert.deepEqual(waveformRects(calls, WAVEFORM_COLORS.mono).map(bar => bar.height), [86, 43]);
 });
 
 test('DPR is capped at two and stopped equivalent inputs do not repaint', () => {
@@ -226,9 +226,9 @@ test('markers, beat lines and loops are restricted to the visible window', () =>
     beats: [{time: 41, major: true}, {time: 20, major: true}], loop: {start: 35, end: 43}};
   drawWaveform(canvas, options);
   assert.deepEqual(calls.filter(call => call.type === 'text').map(call => call.text), ['CUE A']);
-  assert.equal(waveformRects(calls, '#555555').length, 1);
-  assert.deepEqual(waveformRects(calls, '#ffffff14').map(({x, width}) => ({x, width})), [{x: 0, width: 30}]);
-  assert.equal(waveformRects(calls, '#ffffff').length, 0);
+  assert.equal(waveformRects(calls, WAVEFORM_COLORS.beatMajor).length, 1);
+  assert.deepEqual(waveformRects(calls, WAVEFORM_COLORS.loopFill).map(({x, width}) => ({x, width})), [{x: 0, width: 30}]);
+  assert.equal(waveformRects(calls, WAVEFORM_COLORS.playhead).length, 0);
   const count = calls.length;
   assert.equal(drawWaveform(canvas, {...options, markers: [{time: 10, label: 'CHANGED OUTSIDE'}, {start: 45, name: 'CUE A'}]}), false);
   assert.equal(calls.length, count);
@@ -239,7 +239,7 @@ test('overview omits labels and track-end playhead remains inside the canvas', (
   const {canvas, calls} = canvasFixture(100, 40, 2);
   drawWaveform(canvas, {duration: 100, position: 100, markers: [{time: 99, label: 'End'}], overview: true});
   assert.equal(calls.filter(call => call.type === 'text').length, 0);
-  const [playhead] = waveformRects(calls, '#ffffff');
+  const [playhead] = waveformRects(calls, WAVEFORM_COLORS.playhead);
   assert.equal(playhead.x + playhead.width, 200);
 });
 

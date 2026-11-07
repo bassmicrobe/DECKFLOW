@@ -1,6 +1,13 @@
 // Waveform arrays are immutable after generation. Pass a new array or increment
 // revision when editing them in place. Canvas-owned caches are released by GC.
 const canvasCache = new WeakMap();
+// Neon 3-band palette: blue lows, amber mids, white highs on a deep ink ground.
+export const WAVEFORM_COLORS = Object.freeze({
+  background: '#06070d', axis: '#1c1f2e', beatMajor: '#3a3f5c', beatMinor: '#171a28',
+  base: '#2a2f45', mono: '#8b7bff', low: '#3b7bff', mid: '#ffa040', high: '#f4f6ff',
+  loopFill: '#8b7bff26', loop: '#8b7bff', marker: '#ff4d6d', labelBackground: '#06070d',
+  labelText: '#f4f6ff', playhead: '#ffffff'
+});
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const finite = (value, fallback = 0) => Number.isFinite(value) ? value : fallback;
 const positive = value => Math.max(0, finite(value));
@@ -164,13 +171,13 @@ export function drawWaveform(canvas, {waveform, peaks, duration, position = null
   const columns = same(previous?.geometry, geometry) ? previous.columns : columnsFor(source, width, start, end);
   context.setTransform(1, 0, 0, 1, 0, 0);
   context.clearRect(0, 0, width, height);
-  context.fillStyle = '#0a0a0a';
+  context.fillStyle = WAVEFORM_COLORS.background;
   context.fillRect(0, 0, width, height);
-  context.fillStyle = '#303030';
+  context.fillStyle = WAVEFORM_COLORS.axis;
   context.fillRect(0, Math.floor(height / 2), width, 1);
   if (end > start) {
     for (const [time, major] of grid) {
-      context.fillStyle = major ? '#555555' : '#292929';
+      context.fillStyle = major ? WAVEFORM_COLORS.beatMajor : WAVEFORM_COLORS.beatMinor;
       context.fillRect(clamp(Math.round(toX(time)), 0, width - 1), 0, 1, height);
     }
     const center = height / 2, amplitude = height * .43;
@@ -182,22 +189,22 @@ export function drawWaveform(canvas, {waveform, peaks, duration, position = null
         if (upper + lower > 0) context.fillRect(x, center - upper, 1, upper + lower);
       }
     };
-    drawLayer(null, source.detailed ? '#555555' : '#ef535b');
+    drawLayer(null, source.detailed ? WAVEFORM_COLORS.base : WAVEFORM_COLORS.mono);
     if (source.detailed) {
-      drawLayer(columns.low, '#ef535b');
-      drawLayer(columns.mid, '#a8a8a8');
-      drawLayer(columns.high, '#f2f2f2');
+      drawLayer(columns.low, WAVEFORM_COLORS.low);
+      drawLayer(columns.mid, WAVEFORM_COLORS.mid);
+      drawLayer(columns.high, WAVEFORM_COLORS.high);
     }
     if (visibleLoop) {
       const left = toX(visibleLoop[0]), right = toX(visibleLoop[1]);
-      context.fillStyle = '#ffffff14';
+      context.fillStyle = WAVEFORM_COLORS.loopFill;
       context.fillRect(left, 0, right - left, height);
-      context.fillStyle = '#ef535b';
+      context.fillStyle = WAVEFORM_COLORS.loop;
       context.fillRect(left, height - 2 * ratio, right - left, 2 * ratio);
     }
     for (const [time, label] of marks) {
       const x = clamp(Math.round(toX(time)), 0, width - 1);
-      context.fillStyle = '#ef535b';
+      context.fillStyle = WAVEFORM_COLORS.marker;
       context.fillRect(x, 0, Math.max(1, ratio), height);
       if (!overview && label) {
         context.font = `${10 * ratio}px ui-monospace, monospace`;
@@ -205,14 +212,14 @@ export function drawWaveform(canvas, {waveform, peaks, duration, position = null
         const text = label.slice(0, 32), padding = 3 * ratio;
         const textWidth = context.measureText(text).width;
         const labelX = clamp(x + padding, 0, Math.max(0, width - textWidth - padding));
-        context.fillStyle = '#0a0a0a';
+        context.fillStyle = WAVEFORM_COLORS.labelBackground;
         context.fillRect(labelX, 0, Math.min(textWidth + padding, width - labelX), 14 * ratio);
-        context.fillStyle = '#f2f2f2';
+        context.fillStyle = WAVEFORM_COLORS.labelText;
         context.fillText(text, labelX, 2 * ratio, Math.max(1, width - labelX));
       }
     }
     if (playhead !== null) {
-      context.fillStyle = '#ffffff';
+      context.fillStyle = WAVEFORM_COLORS.playhead;
       const line = Math.max(1, ratio);
       context.fillRect(Math.min(playhead, width - line), 0, line, height);
     }
