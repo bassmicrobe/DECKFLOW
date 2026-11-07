@@ -83,27 +83,43 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:0;border-radiu
 .wordmark svg{fill:#fff;filter:drop-shadow(0 0 10px rgba(56,225,255,.55)) drop-shadow(0 0 18px rgba(255,79,209,.35))}
 .wordmark span{font-family:var(--display);font-weight:800;letter-spacing:-.045em;background:linear-gradient(100deg,#fff 0%,#fff 40%,#b9b0ff 70%,#ff8fe4 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
 
-.topbar .workspace-tabs{position:relative;align-self:center;height:auto;gap:2px;padding:4px;border:1px solid var(--edge);border-radius:999px;background:rgba(255,255,255,.035);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.05);-webkit-backdrop-filter:blur(18px) saturate(150%);backdrop-filter:blur(18px) saturate(150%)}
+/* Workspace switcher: quiet track, solid light thumb, no glow. A small LED on
+   the DJ tab stays lit while any deck plays, visible from every view. */
+.topbar .workspace-tabs{position:relative;align-self:center;height:auto;gap:0;padding:3px;border:0;border-radius:13px;
+  background:rgba(255,255,255,.055);box-shadow:inset 0 0 0 1px rgba(255,255,255,.06),inset 0 1px 2px rgba(0,0,0,.45)}
 .topbar .workspace-tabs::before{content:"";position:absolute;left:0;top:0;z-index:0;width:var(--ind-w,0);height:var(--ind-h,0);
-  transform:translate(var(--ind-x,0),var(--ind-y,0));border-radius:999px;opacity:0;
-  background:linear-gradient(110deg,rgba(56,225,255,.22),rgba(139,123,255,.3) 50%,rgba(255,79,209,.22));
-  box-shadow:inset 0 0 0 1px rgba(255,255,255,.16),0 8px 26px -10px rgba(139,123,255,.85);
-  transition:transform .55s var(--ease-spring),width .55s var(--ease-spring),height .3s,opacity .3s}
+  transform:translate(var(--ind-x,0),var(--ind-y,0));border-radius:10px;opacity:0;background:#f4f5fb;
+  box-shadow:0 1px 1px rgba(0,0,0,.35),0 6px 14px -6px rgba(0,0,0,.7),inset 0 1px 0 #fff;
+  transition:transform .5s var(--ease-spring),width .5s var(--ease-spring),height .3s,opacity .2s}
 .topbar .workspace-tabs.has-indicator::before{opacity:1}
-.topbar .workspace-tabs .tab{position:relative;z-index:1;min-height:36px;padding:0 18px;border:0;border-radius:999px;background:transparent;color:var(--muted);font-weight:600;box-shadow:none;transition:color .3s}
+.topbar .workspace-tabs .tab{position:relative;z-index:1;display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:34px;padding:0 16px;
+  border:0;border-radius:10px;background:transparent;color:#9a9fb4;font-size:12.5px;font-weight:600;letter-spacing:.02em;box-shadow:none;transition:color .25s var(--ease-out)}
 .topbar .workspace-tabs .tab:hover{color:#fff}
-.topbar .workspace-tabs .tab.active{color:#fff;background:transparent;border:0}
-.topbar .workspace-tabs:not(.has-indicator) .tab.active{background:rgba(255,255,255,.1)}
+.topbar .workspace-tabs .tab.active,.topbar .workspace-tabs .tab.active:hover{color:#06070d;background:transparent;border:0}
+.topbar .workspace-tabs:not(.has-indicator) .tab.active{background:#f4f5fb}
 .topbar .workspace-tabs .tab::after{display:none}
-.key-indicator{border-radius:999px;border-color:var(--edge-hi);padding:1px 7px;color:var(--muted)}
+.topbar .workspace-tabs .tab:focus-visible{outline-offset:-2px}
+.topbar .workspace-tabs .tab[data-view=play]::before{content:"";width:6px;height:6px;flex:none;border-radius:50%;background:currentColor;opacity:.35;
+  transition:background-color .3s,box-shadow .3s,opacity .3s}
+body:has(.transport.play.is-playing) .topbar .workspace-tabs .tab[data-view=play]::before{opacity:1;background:var(--ok);box-shadow:0 0 0 2px rgba(77,255,154,.18),0 0 8px var(--ok)}
+.key-indicator{border:0;border-radius:6px;padding:1px 6px;background:rgba(255,255,255,.08);color:inherit}
 .top-actions #import-top{border-radius:999px;border:1px solid transparent;color:#fff;font-weight:650;
   background:linear-gradient(#0b0b14,#0b0b14) padding-box,var(--grad) border-box;box-shadow:0 0 24px -10px rgba(139,123,255,.8);
   transition:box-shadow .35s var(--ease-out),transform .18s var(--ease-out)}
 .top-actions #import-top:hover{background:linear-gradient(#141425,#141425) padding-box,var(--grad) border-box;box-shadow:0 0 34px -8px rgba(255,79,209,.7)}
 .top-actions #import-top:active{transform:scale(.96)}
 
-@media(max-width:560px){.topbar .workspace-tabs{width:100%}.topbar .workspace-tabs .tab{padding:0 10px;flex:1}}
+@media(max-width:560px){.topbar .workspace-tabs{width:100%}.topbar .workspace-tabs .tab{padding:0 10px;flex:1;font-size:12px}}
+
+/* Tags: one compact chip style everywhere (counts, status, deck labels). */
+.library-section #track-count,.session-info #audio-status,.action-group{display:inline-flex;align-items:center;gap:6px;height:20px;padding:0 7px;
+  border:0;border-radius:6px;background:rgba(255,255,255,.07);color:#b9bdcd;font:600 10px var(--mono);letter-spacing:.06em;font-variant-numeric:tabular-nums;white-space:nowrap;vertical-align:middle}
+.library-section #track-count{margin-left:10px}
+.session-info #audio-status::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--ok);box-shadow:0 0 6px var(--ok)}
+.action-group{display:flex;width:fit-content;margin-bottom:7px;font-size:9px;letter-spacing:.12em}
+.action-group.a{color:var(--deck-a);background:rgba(56,225,255,.1)}
+.action-group.b{color:var(--deck-b);background:rgba(255,79,209,.1)}
+.action-group.mixer{color:#b9bdcd}
 
 /* ---------- Views & entrance motion ---------- */
 .view.active,.library-section:not([hidden]){animation:view-in .5s var(--ease-out) both}
@@ -112,7 +128,6 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:0;border-radiu
 @keyframes view-in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 @keyframes rise{from{opacity:0;transform:translateY(18px) scale(.985)}to{opacity:1;transform:none}}
 .section-heading h1{font-weight:750;letter-spacing:-.02em}
-.session-info #audio-status{font-family:var(--mono);font-size:10px;letter-spacing:.12em;padding:6px 11px;border:1px solid var(--edge);border-radius:999px;background:rgba(255,255,255,.03)}
 .workspace-foot{color:var(--muted);font-family:var(--mono);letter-spacing:.14em;font-size:10px}
 .tiny-dot,.local-badge i{border-radius:50%;background:var(--ok);box-shadow:0 0 8px var(--ok)}
 
@@ -252,7 +267,6 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:0;border-radiu
 
 .library-section .library-heading{border-bottom-color:var(--edge)}
 .library-section .library-heading h2{font-size:22px;font-weight:750;letter-spacing:-.02em}
-.library-section #track-count{border-radius:999px;border-color:var(--edge-hi);font-family:var(--mono);font-variant-numeric:tabular-nums}
 .library-section .search input{border-radius:999px;background:rgba(0,0,0,.25);border-color:var(--edge)}
 .library-section .sort select,.library-tools summary{border-radius:999px;background:rgba(255,255,255,.05);border-color:var(--edge)}
 .library-tools[open] summary{border-color:rgba(139,123,255,.6);background:rgba(139,123,255,.14)}
@@ -321,9 +335,9 @@ input[type=range]::-moz-range-thumb{width:18px;height:18px;border:0;border-radiu
 .mapping-table-wrap{border-radius:16px;border:1px solid var(--edge);overflow:hidden;background:rgba(0,0,0,.2)}
 .mapping-table th{font-family:var(--mono);font-size:9px;letter-spacing:.2em;color:#6d7288;text-transform:uppercase}
 .mapping-table td{border-bottom-color:rgba(255,255,255,.05)}
-.action-group{border-radius:999px}
-.action-group.a{color:var(--deck-a)}.action-group.b{color:var(--deck-b)}
-.binding{border-radius:999px;border-color:rgba(139,123,255,.4);background:rgba(139,123,255,.12)}
+.binding{border-radius:8px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.06);color:#f4f5fb;font-weight:600}
+.binding button{border-radius:6px}
+.binding button:hover{color:#fff;background:rgba(255,255,255,.08)}
 .learn-button{border-radius:999px;background:rgba(255,255,255,.05);border-color:var(--edge);transition:all .2s var(--ease-out)}
 .learn-button.active{color:#05050a;background:var(--grad);border-color:transparent;animation:learn 1.1s ease-in-out infinite}
 @keyframes learn{50%{box-shadow:0 0 0 6px rgba(139,123,255,.18),0 0 26px rgba(255,79,209,.6)}}
@@ -362,3 +376,7 @@ dialog h2{font-weight:750;letter-spacing:-.02em}
 }
 .library-sidebar .source-open-button{margin-bottom:18px}
 .library-sidebar .sidebar-group-label{margin-top:4px}
+.mapping-filters{display:inline-flex;gap:0;padding:3px;border-radius:13px;background:rgba(255,255,255,.055);box-shadow:inset 0 0 0 1px rgba(255,255,255,.06),inset 0 1px 2px rgba(0,0,0,.45)}
+.mapping-filters .pill{min-height:32px;padding:0 14px;border:0;border-radius:10px;background:transparent;color:#9a9fb4;font-weight:600;transition:color .2s,background-color .25s var(--ease-out),box-shadow .25s}
+.mapping-filters .pill:hover{color:#fff}
+.mapping-filters .pill.active,.mapping-filters .pill.active:hover{color:#06070d;background:#f4f5fb;box-shadow:0 1px 1px rgba(0,0,0,.35),0 6px 14px -6px rgba(0,0,0,.7)}
