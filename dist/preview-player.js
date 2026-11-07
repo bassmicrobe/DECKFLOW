@@ -1,6 +1,6 @@
 /** A single library audition, independent of the DJ decks and mixer. */
-import {openAudioFile} from './audio-resource.js?v=61851a879bde64c2';
-import {PcmFileSource, isPcmFile} from './pcm-file-source.js?v=61851a879bde64c2';
+import {openAudioFile} from './audio-resource.js?v=88e0687b343dbe25';
+import {PcmFileSource, isPcmFile} from './pcm-file-source.js?v=88e0687b343dbe25';
 
 export class PreviewPlayer {
   constructor({getAudio, getBuffer = null, openAudio = openAudioFile, onChange = () => {}, createContext = () => {

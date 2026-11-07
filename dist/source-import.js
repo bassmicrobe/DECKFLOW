@@ -1,5 +1,5 @@
-import {databaseBytes, sourceDigest, sourceFileStamp, normalizeSourcePath} from './library-source.js?v=61851a879bde64c2';
-import {isAudioFile} from './file-drop.js?v=61851a879bde64c2';
+import {databaseBytes, sourceDigest, sourceFileStamp, normalizeSourcePath} from './library-source.js?v=88e0687b343dbe25';
+import {isAudioFile} from './file-drop.js?v=88e0687b343dbe25';
 const pause = () => new Promise(resolve=>setTimeout(resolve,0));
 const preparation = track => JSON.stringify({bpm:track.bpm,beatOffset:track.beatOffset||0,cue:track.cue||0,
   hotcues:track.hotcues??Array(8).fill(null),tempos:track.tempos??[],positionMarks:track.positionMarks??[]});
@@ -37,7 +37,7 @@ function sourceBindings(index,entries,signal){
 /** Additive, read-only import. Metadata opens first; audio is copied encoded, never decoded here. */
 export async function cacheSourceLibrary({library,index,candidate,sources=[],sourceId,reader,signal,saveTrack,transformParsed,sourceExtras={},onProgress=()=>{},onTrack=()=>{},onMetadata=()=>{}}) {
   signal?.throwIfAborted(); onProgress('データベースを確認しています…',{phase:'database'});
-  const bytes=await databaseBytes(index,candidate), digest=await sourceDigest(bytes);
+  const bytes=await databaseBytes(index,candidate,{signal}), digest=await sourceDigest(bytes);
   signal?.throwIfAborted();
   let previous=sourceId?sources.find(source=>source.id===sourceId):sources.find(source=>source.digest===digest && source.databasePath===candidate.path);
   if (sourceId && !previous) throw new Error('更新するライブラリが見つかりません。新しく開いてください。');
@@ -45,6 +45,9 @@ export async function cacheSourceLibrary({library,index,candidate,sources=[],sou
   const cached=previous?.cacheVersion===2 && previous?.digest===digest && previous?.parsed;
   let parsed=cached?previous.parsed:await reader.read('database',{kind:candidate.kind,bytes,sourceId:id,databaseKind:candidate.kind==='sqlite'?(candidate.path.toLowerCase().endsWith('/master.db')||candidate.path.toLowerCase()==='master.db'?'master':'device'):undefined},[bytes.buffer]);
   if (transformParsed) parsed=await transformParsed(structuredClone(parsed),{sourceId:id});
+  if(typeof index.prepareEntries==='function')await index.prepareEntries(parsed.entries,{signal,candidate,onProgress:(completed,total)=>{
+    onProgress(`音源・解析ファイルを確認 ${completed} / ${total}`,{phase:'files',completed,total});
+  }});
   onProgress('曲情報・プレイリストを読み込んでいます…',{phase:'metadata'});
   const incomingById=new Map(parsed.tracks.map(track=>[track.id,track]));
   signal?.throwIfAborted();

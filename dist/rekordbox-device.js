@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-import {validateLibrarySnapshot} from './library-store.js?v=61851a879bde64c2';
-import {parseRekordboxLocation} from './rekordbox-model.js?v=61851a879bde64c2';
+import {validateLibrarySnapshot} from './library-store.js?v=88e0687b343dbe25';
+import {parseRekordboxLocation} from './rekordbox-model.js?v=88e0687b343dbe25';
 
 const PAGE = 4096, MAX_DATABASE = 128 * 1024 * 1024, MAX_ANALYSIS = 32 * 1024 * 1024;
 const fail = (detail = '') => { throw new Error(`Device Libraryを読み取れません。${detail}`); };

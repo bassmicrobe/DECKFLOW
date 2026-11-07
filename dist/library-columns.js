@@ -1,4 +1,4 @@
-import {metadataDate,trackFileType} from './track-metadata.js?v=61851a879bde64c2';
+import {metadataDate,trackFileType} from './track-metadata.js?v=88e0687b343dbe25';
 export const LIBRARY_COLUMNS = Object.freeze([
   {id:'number',label:'#',width:45,sort:'added',required:true},
   {id:'title',label:'曲名',width:235,sort:'title',required:true},

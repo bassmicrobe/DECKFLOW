@@ -1,6 +1,7 @@
 /** Persist owned bytes: storing a File or File.slice directly can retain its
  * external filesystem backing even after an IndexedDB transaction commits. */
 export const AUDIO_CHUNK_BYTES = 1024 * 1024;
+const COPY_BATCH_CHUNKS = 4;
 const FORMAT = 'deckflow.audio-chunks';
 const STAGING = '@audio-stage/';
 const PREFIX = /^@audio\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/$/;
@@ -40,7 +41,8 @@ export function readStoredAudio(store, value, done, fail) {
         try {
           const size = Math.min(AUDIO_CHUNK_BYTES, descriptor.size - index * AUDIO_CHUNK_BYTES);
           if (!(request.result instanceof Blob) || request.result.size !== size) throw invalidAudio();
-          read(index + 1, [...parts, request.result]);
+          parts.push(request.result);
+          read(index + 1, parts);
         } catch (error) { fail(error); }
       };
     };
@@ -110,11 +112,21 @@ async function copyAndCommit(blob, transaction, commit, {signal, lockProtected, 
   checkAbort(signal);
   await transaction(['audio'], 'readwrite', tx => tx.objectStore('audio').put({audio, lockProtected}, stageKey));
   try {
-    for (let index = 0; index < audio.count; index++) {
-      // Read the next chunk only after the preceding transaction committed.
-      const chunk = await ownedChunk(blob, index * AUDIO_CHUNK_BYTES, signal);
-      await transaction(['audio'], 'readwrite', tx => tx.objectStore('audio').put(chunk, `${audio.prefix}${index}`));
-      notifyProgress(onProgress, Math.min((index + 1) * AUDIO_CHUNK_BYTES, audio.size), audio.size);
+    for (let start = 0; start < audio.count; start += COPY_BATCH_CHUNKS) {
+      // Keep slices and the stored layout at 1 MiB. At most four owned chunks
+      // wait for a single transaction, and the next batch is read only after
+      // this transaction has committed. Never buffer the entire audio file.
+      const end = Math.min(start + COPY_BATCH_CHUNKS, audio.count), batch = [];
+      for (let index = start; index < end; index++) {
+        batch.push(await ownedChunk(blob, index * AUDIO_CHUNK_BYTES, signal));
+      }
+      checkAbort(signal);
+      await transaction(['audio'], 'readwrite', tx => {
+        checkAbort(signal);
+        const store = tx.objectStore('audio');
+        for (let index = start; index < end; index++) store.put(batch[index - start], `${audio.prefix}${index}`);
+      });
+      notifyProgress(onProgress, Math.min(end * AUDIO_CHUNK_BYTES, audio.size), audio.size);
     }
     checkAbort(signal);
     return await commit(audio, stageKey);

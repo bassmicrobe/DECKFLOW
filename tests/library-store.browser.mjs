@@ -47,15 +47,17 @@ run.addEventListener('click', async () => {
       request.onsuccess = () => done(request.result);
     });
 
-    await test('音源は1MiB以内で順次コピーされ、再接続後に全バイトを復元', async () => {
-      const bytes = Uint8Array.from({length: 2 * 1024 * 1024 + 7}, (_, index) => index % 251);
-      const reads = [];
+    await test('音源は1MiB以内で読み、4MiB単位の確定後に進捗を更新して全バイトを復元', async () => {
+      const bytes = Uint8Array.from({length: 9 * 1024 * 1024 + 7}, (_, index) => index % 251);
+      const reads = [], progress = [];
       class ObservedBlob extends Blob {
         arrayBuffer() { throw new Error('音源全体を一度に読み込んでいます。'); }
         slice(start, end, type) { reads.push([start, end]); return super.slice(start, end, type); }
       }
-      await first.putTrack(sample('owned-copy'), new ObservedBlob([bytes], {type: 'audio/wav'}));
-      check(reads.length === 3 && reads.every(([start, end]) => end - start <= 1024 * 1024), '1MiBごとの実データ所有化が行われていません。');
+      await first.putTrack(sample('owned-copy'), new ObservedBlob([bytes], {type: 'audio/wav'}), {onProgress: value => progress.push(value)});
+      check(reads.length === 10 && reads.every(([start, end]) => end - start <= 1024 * 1024), '1MiBごとの実データ所有化が行われていません。');
+      equal(progress.map(value => value.completed), [0, 4 * 1024 * 1024, 8 * 1024 * 1024, bytes.length], '確定したバッチ単位の進捗が不正です。');
+      check(progress.every(value => value.total === bytes.length), '音源全体のバイト数が不正です。');
       const audio = await second.getAudio('owned-copy');
       equal(audio.type, 'audio/wav', '音源の形式が失われています。');
       const restored = new Uint8Array(await audio.arrayBuffer());
@@ -67,11 +69,11 @@ run.addEventListener('click', async () => {
       const before = await first.getTracks(), keys = await audioKeys();
       class FailedBlob extends Blob {
         slice(start, end) {
-          if (start > 0) throw new DOMException('Synthetic detached source', 'NotReadableError');
+          if (start >= 5 * 1024 * 1024) throw new DOMException('Synthetic detached source', 'NotReadableError');
           return super.slice(start, end);
         }
       }
-      await rejects(() => first.putTrack({...sample(), title: 'Uncommitted'}, new FailedBlob([new Uint8Array(1024 * 1024 + 1)])), /音源|読み/);
+      await rejects(() => first.putTrack({...sample(), title: 'Uncommitted'}, new FailedBlob([new Uint8Array(9 * 1024 * 1024 + 1)])), /音源|読み/);
       equal(await first.getTracks(), before, '元音源の読み取り失敗で曲情報が変わりました。');
       equal(await audioKeys(), keys, '失敗した分割データが残っています。');
       equal(await (await first.getAudio('fixture-track')).text(), 'fixture audio', '元音源が失われました。');
@@ -81,19 +83,21 @@ run.addEventListener('click', async () => {
       const before = await first.getTracks(), keys = await audioKeys();
       const originalPut = IDBObjectStore.prototype.put;
       for (const failure of ['chunk', 'commit']) {
-        let chunks = 0;
+        let chunks = 0;const progress = [], size = 8 * 1024 * 1024 + 1;
         IDBObjectStore.prototype.put = function (value) {
           const target = this.transaction.db.name === databaseName;
           if (target && this.name === 'audio' && value instanceof Blob) chunks++;
-          if (target && ((failure === 'chunk' && this.name === 'audio' && value instanceof Blob && chunks === 2)
+          if (target && ((failure === 'chunk' && this.name === 'audio' && value instanceof Blob && chunks === 6)
             || (failure === 'commit' && this.name === 'tracks'))) {
             throw new DOMException('Injected audio quota failure', 'QuotaExceededError');
           }
           return originalPut.apply(this, arguments);
         };
         try {
-          await rejects(() => second.putTrack({...sample(), title: 'Uncommitted'}, new Blob([new Uint8Array(1024 * 1024 + 1)])), /保存容量/);
+          await rejects(() => second.putTrack({...sample(), title: 'Uncommitted'}, new Blob([new Uint8Array(size)]),
+            {onProgress: value => progress.push(value.completed)}), /保存容量/);
         } finally { IDBObjectStore.prototype.put = originalPut; }
+        equal(progress, failure === 'chunk' ? [0, 4 * 1024 * 1024] : [0, 4 * 1024 * 1024, 8 * 1024 * 1024, size], '未確定のバッチを進捗に含めています。');
         equal(await first.getTracks(), before, '容量不足で曲情報が変わりました。');
         equal(await audioKeys(), keys, '容量不足で一時データが残りました。');
         equal(await (await first.getAudio('fixture-track')).text(), 'fixture audio', '容量不足で旧音源が消えました。');
@@ -153,10 +157,10 @@ run.addEventListener('click', async () => {
       class AbortedBlob extends Blob {
         slice(start, end) {
           const part = super.slice(start, end);
-          return {arrayBuffer: async () => { controller.abort(); return part.arrayBuffer(); }};
+          return {arrayBuffer: async () => { if (start >= 5 * 1024 * 1024) controller.abort(); return part.arrayBuffer(); }};
         }
       }
-      await rejects(() => first.putTrack({...sample(), title: 'Uncommitted'}, new AbortedBlob(['replacement']), {signal: controller.signal}), /中止/);
+      await rejects(() => first.putTrack({...sample(), title: 'Uncommitted'}, new AbortedBlob([new Uint8Array(9 * 1024 * 1024 + 1)]), {signal: controller.signal}), /中止/);
       equal(await first.getTracks(), before, '中止後に曲情報が変わりました。');
       equal(await audioKeys(), keys, '中止後に一時データが残っています。');
     });

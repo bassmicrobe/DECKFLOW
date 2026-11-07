@@ -1,4 +1,4 @@
-import {createPcmResampler} from './pcm-resampler.js?v=61851a879bde64c2';
+import {createPcmResampler} from './pcm-resampler.js?v=88e0687b343dbe25';
 
 const PAGE_FRAMES = 32768;
 const registrations = new WeakMap();
@@ -9,7 +9,7 @@ async function register(context) {
     throw new Error('大容量音源の再生にはAudioWorklet対応ブラウザーとHTTPSまたはlocalhostが必要です。');
   }
   if (!registrations.has(context)) {
-    const promise = context.audioWorklet.addModule(new URL('./pcm-file-worklet.js?v=61851a879bde64c2', import.meta.url));
+    const promise = context.audioWorklet.addModule(new URL('./pcm-file-worklet.js?v=88e0687b343dbe25', import.meta.url));
     registrations.set(context, promise);
     promise.catch(() => {if (registrations.get(context) === promise) registrations.delete(context);});
   }

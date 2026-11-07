@@ -248,3 +248,37 @@ body:has(.tab[data-view=library].active) #library-section {height:calc(100dvh - 
 .import-progress progress::-webkit-progress-value { background: var(--brand, #e24b55); border-radius: 0; }
 .import-progress progress::-moz-progress-bar { background: var(--brand, #e24b55); border-radius: 0; }
 .import-progress-current { display: block; margin-top: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--muted, #a8a8b0); }
+
+/* Portrait tablets keep both decks usable without controls covering the record.
+   Narrow Split View uses one deck per row instead of squeezing two touch surfaces. */
+@media (any-pointer:coarse) {
+  /* An animated transform on this ancestor traps the fixed mixer in the page. */
+  #play-view.active { animation:none; transform:none; }
+}
+@media (min-width:681px) and (max-width:1024px) and (orientation:portrait), (max-width:680px) {
+  #play-view .platter-section { flex-direction:column; gap:8px; padding:12px 12px 8px; }
+  #play-view .platter { --diameter:clamp(216px,31vw,280px); max-width:100%; }
+  #play-view .platter-info { position:static; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); width:min(100%,280px); gap:8px; }
+  #play-view .platter-info button { width:100%; min-height:44px; }
+  #play-view .hotcues { grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; }
+  #play-view .hotcue { min-height:44px; font-size:12px; }
+  #play-view .hotcue small { font-size:8px; }
+  #play-view .deck-main-controls { grid-template-columns:repeat(4,minmax(0,1fr)); }
+  #play-view .transport { min-width:0; min-height:44px; letter-spacing:.06em; }
+}
+@media (min-width:681px) and (max-width:1024px) and (orientation:portrait) {
+  #play-view > .section-heading { min-height:44px; padding:8px 0; }
+  #play-view > .section-heading h1 { margin:0; font-size:18px; }
+  #play-view .deck-top { min-height:56px; padding:8px 12px; }
+  #play-view .deck-wave { height:88px; }
+  #play-view .deck-timeline { padding:4px 12px; }
+  #play-view .platter-section { padding-top:8px; }
+  #play-view .deck-main-controls { padding-top:8px; }
+  #play-view .hotcues { padding-top:8px; padding-bottom:8px; }
+  #play-view .deck-bottom { padding:10px 12px; gap:8px; }
+  #play-view .tempo-volume { gap:8px 12px; }
+}
+@media (max-width:680px) {
+  #play-view .decks { grid-template-columns:minmax(0,1fr); }
+  #play-view .platter { --diameter:min(300px,calc(100vw - 72px)); }
+}

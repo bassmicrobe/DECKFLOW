@@ -46,8 +46,129 @@ export function indexFileList(files) {
   const label = files[0]?.webkitRelativePath?.split('/')[0] || '選択したファイル';
   return createSourceIndex(files.filter(file => RELEVANT.test(file.name)).map(file => ({path:file.webkitRelativePath || file.name, getFile:async()=>file})), label);
 }
+
+function childName(handle) {
+  const name=handle?.name;
+  if(typeof name!=='string'||name.includes('/'))fail('安全に読み取れないフォルダ名・ファイル名です。');
+  normalizeSourcePath(name);
+  return name;
+}
+
+// A fresh resolver per operation keeps absent paths and revoked permissions from
+// leaking into later imports. It opens named children only; it never enumerates.
+function directoryResolver(root,signal) {
+  const rootName=childName(root),folders=new Map([['',Promise.resolve({handle:root,names:[]})]]);
+  const optional=async operation=>{
+    signal?.throwIfAborted();
+    try{const value=await operation();signal?.throwIfAborted();return value;}
+    catch(error){signal?.throwIfAborted();if(['NotFoundError','TypeMismatchError'].includes(error.name))return null;throw error;}
+  };
+  const directory=parts=>{
+    const key=parts.join('/');
+    if(!folders.has(key))folders.set(key,(async()=>{
+      const parent=await directory(parts.slice(0,-1));signal?.throwIfAborted();
+      if(!parent)return null;
+      const handle=await optional(()=>parent.handle.getDirectoryHandle(parts.at(-1),{create:false}));
+      signal?.throwIfAborted();
+      return handle?{handle,names:[...parent.names,childName(handle)]}:null;
+    })());
+    return folders.get(key);
+  };
+  return async raw=>{
+    normalizeSourcePath(raw);
+    const parts=raw.replace(/^\/+/,'').split('/');
+    const parent=await directory(parts.slice(0,-1));signal?.throwIfAborted();
+    if(!parent)return null;
+    const handle=await optional(()=>parent.handle.getFileHandle(parts.at(-1),{create:false}));
+    signal?.throwIfAborted();
+    if(!handle)return null;
+    const relative=[...parent.names,childName(handle)].join('/');
+    return {handle,relative,path:normalizeSourcePath(`${rootName}/${relative}`),getFile:()=>handle.getFile()};
+  };
+}
+
+async function targetedDeviceIndex(root,{signal}) {
+  const resolve=directoryResolver(root,signal),databases=[],initial=new Map();
+  for(const folder of ['PIONEER','.PIONEER'])for(const filename of ['export.pdb','exportLibrary.db']){
+    const relative=`${folder}/rekordbox/${filename}`,item=await resolve(relative);
+    signal?.throwIfAborted();
+    if(!item)continue;
+    databases.push({relative,path:item.path});initial.set(item.path,item);
+    const wal=await resolve(relative+'-wal');signal?.throwIfAborted();
+    if(wal)initial.set(wal.path,wal);
+  }
+  if(!databases.length)return null;
+  const entries=new Map(),aliases=new Map();
+  const publish=(items,lookup)=>{
+    entries.clear();aliases.clear();
+    for(const [path,item] of items)entries.set(path,{path,getFile:item.getFile});
+    for(const [alias,item] of lookup)aliases.set(alias,entries.get(item.path));
+  };
+  publish(initial,new Map(databases.map(database=>[normalizeSourcePath(database.relative),initial.get(database.path)])));
+  const index={label:root.name,entries,targetedDevice:true,
+    find(path){return path?aliases.get(normalizeSourcePath(path))||null:null;},
+    async databaseWal(candidate,{signal:readSignal}={}){
+      const database=databases.find(item=>item.path===candidate.path);
+      if(!database)return null;
+      // Re-probe with a fresh resolver, including when the same picker selection
+      // is reused after a cancelled import or rekordbox has created a new WAL.
+      const item=await directoryResolver(root,readSignal)(database.relative+'-wal');
+      readSignal?.throwIfAborted();return item;
+    },
+    async prepareEntries(references,{signal:readSignal,onProgress=()=>{},candidate}={}){
+      readSignal?.throwIfAborted();
+      const paths=new Set();
+      const add=path=>{normalizeSourcePath(path);paths.add(path.replace(/^\/+/,''));if(paths.size>MAX_FILES)fail('1回に選べるファイルは100,000件までです。');};
+      for(const entry of references){
+        add(entry.sourcePath);
+        if(entry.analysisPath)for(const extension of ['DAT','EXT'])add(entry.analysisPath.replace(/\.(?:DAT|EXT|2EX)$/i,`.${extension}`));
+      }
+      if(candidate)await checkDatabaseWal(index,candidate,readSignal);
+      readSignal?.throwIfAborted();
+      const resolve=directoryResolver(root,readSignal),items=new Map(initial),lookup=new Map();
+      for(const database of databases)lookup.set(normalizeSourcePath(database.relative),items.get(database.path));
+      let cursor=0,completed=0,failure;const pending=[...paths];
+      const report=()=>onProgress(completed,pending.length);
+      report();
+      const worker=async()=>{
+        while(!failure&&cursor<pending.length){
+          const raw=pending[cursor++];
+          try{
+            const resolved=await resolve(raw);readSignal?.throwIfAborted();if(failure)return;
+            if(resolved){
+              let item=items.get(resolved.path);
+              if(item&&item.handle!==resolved.handle){
+                const same=typeof item.handle.isSameEntry==='function'?await item.handle.isSameEntry(resolved.handle):item.relative===resolved.relative;
+                readSignal?.throwIfAborted();if(failure)return;
+                if(!same)fail('同じパスのファイルが重複しています。フォルダを選び直してください。');
+              }
+              if(!item){item=resolved;items.set(item.path,item);}
+              for(const alias of [normalizeSourcePath(raw),normalizeSourcePath(resolved.relative)]){
+                const previous=lookup.get(alias);
+                if(previous&&previous.path!==item.path)fail('同じパスのファイルが重複しています。フォルダを選び直してください。');
+                lookup.set(alias,item);
+              }
+            }
+            completed++;report();
+            if(completed%100===0){await new Promise(resolve=>setTimeout(resolve,0));readSignal?.throwIfAborted();}
+          }catch(error){failure??=error;}
+        }
+      };
+      await Promise.all(Array.from({length:Math.min(4,pending.length)},worker));
+      readSignal?.throwIfAborted();if(failure)throw failure;
+      // No partially prepared aliases become visible after an error or cancel.
+      publish(items,lookup);
+    },
+  };
+  return index;
+}
+
 export async function indexDirectory(handle, {signal, onProgress = () => {}} = {}) {
   signal?.throwIfAborted();
+  if(typeof handle.getDirectoryHandle==='function'){
+    const device=await targetedDeviceIndex(handle,{signal});signal?.throwIfAborted();
+    if(device)return device;
+  }
   const items = []; let scanned = 0;
   async function walk(directory, prefix, depth) {
     if (depth > 32) fail('フォルダ階層は32段まで対応しています。');
@@ -74,13 +195,19 @@ export function databaseCandidates(index) {
   return result.sort((a,b)=>({pdb:0,sqlite:1,xml:2}[a.kind]-{pdb:0,sqlite:1,xml:2}[b.kind]) || a.path.localeCompare(b.path));
 }
 export function sourceFileStamp(file, path) { return `${path}|${file.size}|${file.lastModified || 0}`; }
-export async function databaseBytes(index, candidate) {
-  const wal = index.entries.get(candidate.path + '-wal');
-  if (wal && (await wal.getFile()).size > 0) fail('未反映の変更（WAL）があるデータベースです。rekordboxを終了し、データベースを確定させてからフォルダを選び直してください。XMLでも取り込めます。');
+async function checkDatabaseWal(index,candidate,signal) {
+  signal?.throwIfAborted();
+  const wal=typeof index.databaseWal==='function'?await index.databaseWal(candidate,{signal}):index.entries.get(candidate.path+'-wal');
+  signal?.throwIfAborted();
+  if(wal){const file=await wal.getFile();signal?.throwIfAborted();if(file.size>0)fail('未反映の変更（WAL）があるデータベースです。rekordboxを終了し、データベースを確定させてからフォルダを選び直してください。XMLでも取り込めます。');}
+}
+export async function databaseBytes(index, candidate, {signal}={}) {
+  await checkDatabaseWal(index,candidate,signal);
   const file = await candidate.getFile();
+  signal?.throwIfAborted();
   if(candidate.kind==='xml' && file.size>32*1024*1024) fail('XMLは32 MB以内で選んでください。');
   if (!file.size || file.size > 128 * 1024 * 1024) fail('ライブラリDBは128 MB以内で選んでください。大きい場合はXMLまたはUSBライブラリを使用してください。');
-  return new Uint8Array(await file.arrayBuffer());
+  const bytes=new Uint8Array(await file.arrayBuffer());signal?.throwIfAborted();return bytes;
 }
 export async function sourceDigest(bytes) {
   const hash = await crypto.subtle.digest('SHA-256', bytes);
@@ -89,7 +216,7 @@ export async function sourceDigest(bytes) {
 
 /** A worker per import keeps parsing off the playback/UI thread and makes cancellation immediate. */
 export function createLibraryReader() {
-  const worker = new Worker(new URL('./library-source-worker.js?v=61851a879bde64c2', import.meta.url), {type:'module'});
+  const worker = new Worker(new URL('./library-source-worker.js?v=88e0687b343dbe25', import.meta.url), {type:'module'});
   let sequence = 0; const pending = new Map(); let closed = false;
   const close = (error = new Error('読み込みを中止しました。')) => {
     if (closed) return; closed = true; worker.terminate();

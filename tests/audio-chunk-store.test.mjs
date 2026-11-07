@@ -51,16 +51,20 @@ test('owned audio restores ordered chunks and rejects missing, malformed or shor
 
 // Commit each transaction only after its async boundary. Observers can then
 // distinguish queued bytes from durable staging bytes without a real browser.
-function copyHarness(t, {failChunkAt = Infinity} = {}) {
+function copyHarness(t, {failChunkAt = Infinity, chunkError = new Error('chunk transaction failed'), failPublication = false} = {}) {
   const original = Object.getOwnPropertyDescriptor(globalThis, 'IDBKeyRange');
   Object.defineProperty(globalThis, 'IDBKeyRange', {configurable: true,
     value: {bound: (lower, upper) => ({lower, upper})}});
   t.after(() => original ? Object.defineProperty(globalThis, 'IDBKeyRange', original) : delete globalThis.IDBKeyRange);
   let data = new Map(), chunks = 0, publications = 0;
+  const attemptedBatches = [], committedBatches = [];
   const transaction = async (_stores, _mode, run) => {
-    const draft = new Map(data);let reject = false;
+    const draft = new Map(data), writes = [];let reject = false;
     const store = {
-      put(value, key) { draft.set(key, value);if (value instanceof Blob && ++chunks === failChunkAt) reject = true; },
+      put(value, key) {
+        draft.set(key, value);
+        if (value instanceof Blob) { writes.push({key, size: value.size});if (++chunks === failChunkAt) reject = true; }
+      },
       delete(key) {
         if (typeof key === 'string') draft.delete(key);
         else for (const candidate of draft.keys()) if (candidate >= key.lower && candidate <= key.upper) draft.delete(candidate);
@@ -68,48 +72,58 @@ function copyHarness(t, {failChunkAt = Infinity} = {}) {
       openCursor() { const request = {};queueMicrotask(() => request.onsuccess());return request; },
     };
     run({objectStore: () => store});
+    if (writes.length) attemptedBatches.push(writes);
     await Promise.resolve();
-    if (reject) throw new Error('chunk transaction failed');
+    if (reject) throw chunkError;
     data = draft;
+    if (writes.length) committedBatches.push(writes);
   };
   return {transaction,
-    commit: async (audio, stageKey) => { publications++;data.set('saved-track', audio);data.delete(stageKey);return 'published'; },
+    commit: async (audio, stageKey) => {
+      if (failPublication) throw new DOMException('publication quota failure', 'QuotaExceededError');
+      publications++;data.set('saved-track', audio);data.delete(stageKey);return 'published';
+    },
     bytes: () => [...data.values()].reduce((sum, value) => sum + (value instanceof Blob ? value.size : 0), 0),
     size: () => data.size,
     publications: () => publications,
+    attemptedBatches, committedBatches,
   };
 }
 
-test('copy progress reports only committed bytes including the exact final partial chunk', async t => {
-  const harness = copyHarness(t), progress = [], size = AUDIO_CHUNK_BYTES * 2 + 7;
+test('copy progress reports committed batches including the exact final partial chunk', async t => {
+  const harness = copyHarness(t), progress = [], size = AUDIO_CHUNK_BYTES * 9 + 7;
   const result = await withOwnedAudio(new Blob([new Uint8Array(size)]), harness.transaction, harness.commit,
     {onProgress: value => progress.push({...value, staged: harness.bytes(), published: harness.publications()})});
   assert.equal(result, 'published');
-  assert.deepEqual(progress.map(value => value.completed), [0, AUDIO_CHUNK_BYTES, AUDIO_CHUNK_BYTES * 2, size]);
+  assert.deepEqual(progress.map(value => value.completed), [0, AUDIO_CHUNK_BYTES * 4, AUDIO_CHUNK_BYTES * 8, size]);
   for (const value of progress) {
     assert.equal(value.total, size);
     assert.equal(value.completed, value.staged);
     assert.equal(value.published, 0, 'byte progress precedes final track publication');
   }
   assert.equal(harness.publications(), 1);
+  assert.deepEqual(harness.committedBatches.map(batch => batch.length), [4, 4, 2]);
 });
 
-test('failed chunk writes never advance progress and all staged audio is cleaned', async t => {
-  const harness = copyHarness(t, {failChunkAt: 2}), progress = [];
-  await assert.rejects(withOwnedAudio(new Blob([new Uint8Array(AUDIO_CHUNK_BYTES * 2 + 7)]), harness.transaction, harness.commit,
+test('failure in a later batch never advances progress and cleans every earlier batch', async t => {
+  const harness = copyHarness(t, {failChunkAt: 6}), progress = [];
+  await assert.rejects(withOwnedAudio(new Blob([new Uint8Array(AUDIO_CHUNK_BYTES * 9 + 7)]), harness.transaction, harness.commit,
     {onProgress: value => progress.push(value.completed)}), /chunk transaction failed/);
-  assert.deepEqual(progress, [0, AUDIO_CHUNK_BYTES]);
+  assert.deepEqual(progress, [0, AUDIO_CHUNK_BYTES * 4]);
+  assert.equal(harness.attemptedBatches.length, 2);
+  assert.equal(harness.committedBatches.length, 1);
   assert.equal(harness.publications(), 0);
   assert.equal(harness.size(), 0);
 });
 
 test('cancelled copies stop byte progress without publishing and remove staged audio', async t => {
   const harness = copyHarness(t), controller = new AbortController(), progress = [];
-  await assert.rejects(withOwnedAudio(new Blob([new Uint8Array(AUDIO_CHUNK_BYTES * 2 + 7)]), harness.transaction, harness.commit,
+  await assert.rejects(withOwnedAudio(new Blob([new Uint8Array(AUDIO_CHUNK_BYTES * 9 + 7)]), harness.transaction, harness.commit,
     {signal: controller.signal, onProgress: value => {
       progress.push(value.completed);if (value.completed) controller.abort();
     }}), {name: 'AbortError'});
-  assert.deepEqual(progress, [0, AUDIO_CHUNK_BYTES]);
+  assert.deepEqual(progress, [0, AUDIO_CHUNK_BYTES * 4]);
+  assert.equal(harness.committedBatches.length, 1);
   assert.equal(harness.publications(), 0);
   assert.equal(harness.size(), 0);
 });
@@ -122,6 +136,70 @@ test('throwing or rejecting progress observers cannot interrupt a successful sav
       return Promise.reject(new Error('async observer failed'));
     }});
   assert.equal(result, 'published');
-  assert.equal(notifications, 3);
+  assert.equal(notifications, 2);
   assert.equal(harness.publications(), 1);
+});
+
+test('copy reads stay sequential and at most 4 MiB ahead of committed staging', async t => {
+  const harness = copyHarness(t), size = AUDIO_CHUNK_BYTES * 10 + 7;
+  let totalRead = 0, maxPending = 0, inFlight = 0, maxInFlight = 0;
+  class ObservedBlob extends Blob {
+    arrayBuffer() { throw new Error('whole-file read is forbidden'); }
+    slice(start, end) {
+      assert.ok(end - start <= AUDIO_CHUNK_BYTES, 'individual slices stay at 1 MiB');
+      const part = super.slice(start, end);
+      return {arrayBuffer: async () => {
+        inFlight++;maxInFlight = Math.max(maxInFlight, inFlight);
+        const bytes = await part.arrayBuffer();
+        totalRead += bytes.byteLength;
+        maxPending = Math.max(maxPending, totalRead - harness.bytes());
+        inFlight--;return bytes;
+      }};
+    }
+  }
+  await withOwnedAudio(new ObservedBlob([new Uint8Array(size)]), harness.transaction, harness.commit);
+  assert.equal(maxInFlight, 1);
+  assert.equal(totalRead, size);
+  assert.equal(maxPending, AUDIO_CHUNK_BYTES * 4);
+  assert.deepEqual(harness.committedBatches.map(batch => batch.length), [4, 4, 3]);
+  assert.equal(harness.committedBatches.length, Math.ceil(size / (AUDIO_CHUNK_BYTES * 4)));
+});
+
+test('abort during a later batch read never writes that batch and cleans earlier staging', async t => {
+  const harness = copyHarness(t), controller = new AbortController(), progress = [];
+  class AbortedBlob extends Blob {
+    slice(start, end) {
+      const part = super.slice(start, end);
+      return {arrayBuffer: async () => {
+        const bytes = await part.arrayBuffer();
+        if (start === AUDIO_CHUNK_BYTES * 5) controller.abort();
+        return bytes;
+      }};
+    }
+  }
+  await assert.rejects(withOwnedAudio(new AbortedBlob([new Uint8Array(AUDIO_CHUNK_BYTES * 9 + 7)]), harness.transaction, harness.commit,
+    {signal: controller.signal, onProgress: value => progress.push(value.completed)}), {name: 'AbortError'});
+  assert.deepEqual(progress, [0, AUDIO_CHUNK_BYTES * 4]);
+  assert.equal(harness.attemptedBatches.length, 1);
+  assert.equal(harness.publications(), 0);
+  assert.equal(harness.size(), 0);
+});
+
+test('quota failure rolls back a later batch without reporting its uncommitted bytes', async t => {
+  const harness = copyHarness(t, {failChunkAt: 6, chunkError: new DOMException('batch quota failure', 'QuotaExceededError')}), progress = [];
+  await assert.rejects(withOwnedAudio(new Blob([new Uint8Array(AUDIO_CHUNK_BYTES * 9 + 7)]), harness.transaction, harness.commit,
+    {onProgress: value => progress.push(value.completed)}), {name: 'QuotaExceededError'});
+  assert.deepEqual(progress, [0, AUDIO_CHUNK_BYTES * 4]);
+  assert.equal(harness.publications(), 0);
+  assert.equal(harness.size(), 0);
+});
+
+test('final publication quota failure cleans all committed batches without publishing a track', async t => {
+  const harness = copyHarness(t, {failPublication: true}), progress = [], size = AUDIO_CHUNK_BYTES * 9 + 7;
+  await assert.rejects(withOwnedAudio(new Blob([new Uint8Array(size)]), harness.transaction, harness.commit,
+    {onProgress: value => progress.push(value.completed)}), {name: 'QuotaExceededError'});
+  assert.deepEqual(progress, [0, AUDIO_CHUNK_BYTES * 4, AUDIO_CHUNK_BYTES * 8, size]);
+  assert.equal(harness.committedBatches.length, 3);
+  assert.equal(harness.publications(), 0);
+  assert.equal(harness.size(), 0);
 });
