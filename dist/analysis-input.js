@@ -1,4 +1,4 @@
-import {waveformDimensions} from './waveform-data.js?v=7c8bf604d2c9c1e4';
+import {waveformDimensions} from './waveform-data.js?v=61851a879bde64c2';
 
 const ANALYSIS_SAMPLE_RATE = 22050;
 

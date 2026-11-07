@@ -1,29 +1,29 @@
-import {installMotion} from './ui-motion.js?v=7c8bf604d2c9c1e4';
-import {createAnalysisInput} from './analysis-input.js?v=7c8bf604d2c9c1e4';
-import {isPcmFileResource} from './audio-resource.js?v=7c8bf604d2c9c1e4';
-import {analyzeAudioResource,audioResourcePeaks} from './audio-resource-analysis.js?v=7c8bf604d2c9c1e4';
-import {bindTouchSlider} from './touch-slider.js?v=7c8bf604d2c9c1e4';
-import {bindPlatterGesture} from './platter-gesture.js?v=7c8bf604d2c9c1e4';
-import {AudioEngine} from './audio-engine.js?v=7c8bf604d2c9c1e4';
-import {MappingManager} from './mappings.js?v=7c8bf604d2c9c1e4';
-import {installDeckMidiLearn} from './deck-midi-learn.js?v=7c8bf604d2c9c1e4';
-import {openLibrary} from './library-store.js?v=7c8bf604d2c9c1e4';
-import {nativeUSBAvailable,openNativeUSB,importNativeUSB,writeNativeHotCues,exportNativeUSB} from './native-usb-library.js?v=7c8bf604d2c9c1e4';
-import {USBDeviceMonitor,sourcePlaylistIds,isDeviceLibrarySource} from './usb-devices.js?v=7c8bf604d2c9c1e4';
-import {createTrackQueue} from './track-updates.js?v=7c8bf604d2c9c1e4';
-import {editTrackHotCue} from './track-hotcues.js?v=7c8bf604d2c9c1e4';
-import {installFileDrop,isAudioFile} from './file-drop.js?v=7c8bf604d2c9c1e4';
-import {PreviewPlayer} from './preview-player.js?v=7c8bf604d2c9c1e4';
-import {sortLibraryTracks} from './library-sort.js?v=7c8bf604d2c9c1e4';
-import {LIBRARY_COLUMNS,normalizeLibraryColumns,libraryColumnText} from './library-columns.js?v=7c8bf604d2c9c1e4';
-import {AudioBufferCache} from './audio-buffer-cache.js?v=7c8bf604d2c9c1e4';
-import {WaveformCache} from './waveform-cache.js?v=7c8bf604d2c9c1e4';
-import {SelectedWaveformLoader} from './waveform-selection.js?v=7c8bf604d2c9c1e4';
-import {drawWaveform,getWaveformWindow,timeAtWaveformX,waveformBeats,waveformBeatPosition} from './waveform-view.js?v=7c8bf604d2c9c1e4';
-import {indexFileList,indexDirectory,createSourceIndex,databaseCandidates,createLibraryReader} from './library-source.js?v=7c8bf604d2c9c1e4';
-import {cacheSourceLibrary} from './source-import.js?v=7c8bf604d2c9c1e4';
-import {parseRekordboxXml} from './rekordbox-import.js?v=7c8bf604d2c9c1e4';
-import {findImportedAudio,audioPeaks,tempoAt,advanceBeats,relinkMetadata} from './import-audio.js?v=7c8bf604d2c9c1e4';
+import {installMotion} from './ui-motion.js?v=61851a879bde64c2';
+import {createAnalysisInput} from './analysis-input.js?v=61851a879bde64c2';
+import {isPcmFileResource} from './audio-resource.js?v=61851a879bde64c2';
+import {analyzeAudioResource,audioResourcePeaks} from './audio-resource-analysis.js?v=61851a879bde64c2';
+import {bindTouchSlider} from './touch-slider.js?v=61851a879bde64c2';
+import {bindPlatterGesture} from './platter-gesture.js?v=61851a879bde64c2';
+import {AudioEngine} from './audio-engine.js?v=61851a879bde64c2';
+import {MappingManager} from './mappings.js?v=61851a879bde64c2';
+import {installDeckMidiLearn} from './deck-midi-learn.js?v=61851a879bde64c2';
+import {openLibrary} from './library-store.js?v=61851a879bde64c2';
+import {nativeUSBAvailable,openNativeUSB,importNativeUSB,writeNativeHotCues,exportNativeUSB} from './native-usb-library.js?v=61851a879bde64c2';
+import {USBDeviceMonitor,sourcePlaylistIds,isDeviceLibrarySource} from './usb-devices.js?v=61851a879bde64c2';
+import {createTrackQueue} from './track-updates.js?v=61851a879bde64c2';
+import {editTrackHotCue} from './track-hotcues.js?v=61851a879bde64c2';
+import {installFileDrop,isAudioFile} from './file-drop.js?v=61851a879bde64c2';
+import {PreviewPlayer} from './preview-player.js?v=61851a879bde64c2';
+import {sortLibraryTracks} from './library-sort.js?v=61851a879bde64c2';
+import {LIBRARY_COLUMNS,normalizeLibraryColumns,libraryColumnText} from './library-columns.js?v=61851a879bde64c2';
+import {AudioBufferCache} from './audio-buffer-cache.js?v=61851a879bde64c2';
+import {WaveformCache} from './waveform-cache.js?v=61851a879bde64c2';
+import {SelectedWaveformLoader} from './waveform-selection.js?v=61851a879bde64c2';
+import {drawWaveform,getWaveformWindow,timeAtWaveformX,waveformBeats,waveformBeatPosition} from './waveform-view.js?v=61851a879bde64c2';
+import {indexFileList,indexDirectory,createSourceIndex,databaseCandidates,createLibraryReader} from './library-source.js?v=61851a879bde64c2';
+import {cacheSourceLibrary} from './source-import.js?v=61851a879bde64c2';
+import {parseRekordboxXml} from './rekordbox-import.js?v=61851a879bde64c2';
+import {findImportedAudio,audioPeaks,tempoAt,advanceBeats,relinkMetadata} from './import-audio.js?v=61851a879bde64c2';
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -569,7 +569,7 @@ function analyze(buffer,onProgress=()=>{}){
 }
 function analyzeInput(samples,sampleRate){
   return new Promise((resolve,reject)=>{
-    if(!worker){worker=new Worker(new URL('./analysis-worker.js?v=7c8bf604d2c9c1e4',import.meta.url),{type:'module'});worker.onmessage=({data})=>{const entry=pendingAnalysis.get(data.id);if(!entry)return;pendingAnalysis.delete(data.id);clearTimeout(entry.timer);data.error?entry.reject(new Error(data.error)):entry.resolve(data.result);};worker.onerror=()=>{for(const entry of pendingAnalysis.values()){clearTimeout(entry.timer);entry.reject(new Error('解析処理を開始できませんでした。ページを再読み込みしてください。'));}pendingAnalysis.clear();worker.terminate();worker=null;};}
+    if(!worker){worker=new Worker(new URL('./analysis-worker.js?v=61851a879bde64c2',import.meta.url),{type:'module'});worker.onmessage=({data})=>{const entry=pendingAnalysis.get(data.id);if(!entry)return;pendingAnalysis.delete(data.id);clearTimeout(entry.timer);data.error?entry.reject(new Error(data.error)):entry.resolve(data.result);};worker.onerror=()=>{for(const entry of pendingAnalysis.values()){clearTimeout(entry.timer);entry.reject(new Error('解析処理を開始できませんでした。ページを再読み込みしてください。'));}pendingAnalysis.clear();worker.terminate();worker=null;};}
     const id=++analysisId;const timer=setTimeout(()=>{pendingAnalysis.delete(id);reject(new Error('解析処理が応答しません。もう一度お試しください。'));},90000);
     pendingAnalysis.set(id,{resolve,reject,timer});worker.postMessage({id,samples,sampleRate},[samples.buffer]);
   });
@@ -577,12 +577,34 @@ function analyzeInput(samples,sampleRate){
 
 function setImporting(value){
   importing=value;
+  if(value)renderImportProgress(null);
   if(value)usbDeviceMonitor?.stop();else if(pageActive&&!document.hidden)usbDeviceMonitor?.start();
   for(const id of ['import-top','import-empty','import-xml','import-xml-empty','choose-xml','open-sources','open-sources-empty','choose-source-folder','choose-source-files','start-source-import']){
     const el=$(`#${id}`);if(!el)continue;el.disabled=value;el.classList.toggle('importing',value);
   }
   for(const button of $$('[data-source-refresh],[data-source-forget]'))button.disabled=value;
   renderNativeUSB();renderUSBDevices();updatePreviewCues();
+}
+
+function renderImportProgress(detail){
+  const labels={folder:'フォルダを確認中',database:'DBを読み取り中',metadata:'曲情報を読み込み中',audio:'音源を端末に保存中',saving:'保存を確定中',done:'読み込み完了',cancelled:'読み込みを中止しました',error:'読み込みを完了できませんでした'};
+  for(const box of $$('[data-import-progress]')){
+    box.hidden=!detail;if(!detail)continue;
+    const bar=box.querySelector('progress'),count=box.querySelector('[data-import-count]'),current=box.querySelector('[data-import-current]');
+    const known=Number.isFinite(detail.completed)&&Number.isFinite(detail.total)&&detail.total>0;
+    const copying=Number.isFinite(detail.bytesCompleted)&&Number.isFinite(detail.bytesTotal)&&detail.bytesTotal>0;
+    const fraction=copying?clamp(detail.bytesCompleted/detail.bytesTotal,0,.999):0;
+    const percent=detail.phase==='done'?100:known?Math.min(99,Math.floor((detail.completed+fraction)/detail.total*100)):null;
+    const label=labels[detail.phase]||'読み込み中';box.querySelector('[data-import-label]').textContent=label;
+    if(percent===null){bar.removeAttribute('value');count.textContent=detail.scanned?`${detail.scanned.toLocaleString('ja-JP')}ファイルを確認`:'';}
+    else{bar.value=percent;count.textContent=known?`${detail.completed.toLocaleString('ja-JP')} / ${detail.total.toLocaleString('ja-JP')}曲 · ${percent}%`:`${percent}%`;}
+    const bytes=copying?`${(detail.bytesCompleted/1024/1024).toFixed(1)} / ${(detail.bytesTotal/1024/1024).toFixed(1)} MiB`:'';
+    current.textContent=[detail.title,bytes].filter(Boolean).join(' — ');current.hidden=!current.textContent;
+    const stopped=['cancelled','error'].includes(detail.phase);
+    bar.hidden=stopped;bar.setAttribute('aria-label',label);bar.setAttribute('aria-valuetext',[label,count.textContent,bytes].filter(Boolean).join('、'));
+    box.dataset.phase=detail.phase;
+  }
+  const cancel=$('#library-load-cancel');if(cancel)cancel.hidden=!detail||!sourceController||['done','cancelled','error'].includes(detail.phase);
 }
 
 async function importXml(file){
@@ -765,7 +787,7 @@ async function addUSBDevice(){
   await runSourceImport({index:session.index,candidate:session.candidate,sourceId:cachedUSBSource(session.root.id)?.id,session,fromUSB:true});
 }
 function openSources(reset=true){
-  if(!importing){if(reset)refreshSourceId=null;selectedSourceIndex=null;selectedCandidates=[];$('#source-selection').hidden=true;$('#source-database').innerHTML='';$('#source-progress').textContent='';}
+  if(!importing){renderImportProgress(null);if(reset)refreshSourceId=null;selectedSourceIndex=null;selectedCandidates=[];$('#source-selection').hidden=true;$('#source-database').innerHTML='';$('#source-progress').textContent='';}
   renderSources();if(!$('#source-dialog').open)$('#source-dialog').showModal();
 }
 async function chooseSourceFolder(){
@@ -785,12 +807,15 @@ async function chooseSourceFolder(){
       const handle=await globalThis.showDirectoryPicker({id:'deckflow-library',mode:'read'});
       controller.signal.throwIfAborted();
       $('#cancel-source-import').hidden=false;
+      renderImportProgress({phase:'folder'});
       $('#source-progress').textContent='フォルダ内のファイルを確認しています…';
       const index=await indexDirectory(handle,{signal:controller.signal,onProgress:count=>{
+        renderImportProgress({phase:'folder',scanned:count});
         $('#source-progress').textContent=`フォルダ内のファイルを確認しています… ${count.toLocaleString('ja-JP')}件`;
       }});
-      controller.signal.throwIfAborted();selectSourceIndex(index);
+      controller.signal.throwIfAborted();renderImportProgress(null);selectSourceIndex(index);
     }catch(error){
+      renderImportProgress({phase:error.name==='AbortError'?'cancelled':'error'});
       if(error.name==='AbortError')$('#source-progress').textContent='フォルダの読み込みを中止しました。';
       else{const message=['NotAllowedError','SecurityError'].includes(error.name)?'フォルダを開けませんでした。読み取りを許可して、もう一度選択してください。':error.message;$('#source-progress').textContent=message;throw new Error(message);}
     }finally{sourceController=null;$('#cancel-source-import').hidden=true;setImporting(false);}
@@ -801,6 +826,7 @@ async function chooseSourceFolder(){
 }
 
 function selectSourceIndex(index){
+  renderImportProgress(null);
   if(!index.entries.size){$('#source-progress').textContent='対応するファイルがありません。DBまたは音源を含むフォルダを選んでください。';return;}
   const candidates=databaseCandidates(index);
   if(!candidates.length&&selectedSourceIndex&&selectedCandidates.length){
@@ -822,9 +848,16 @@ async function importSource(){
 }
 async function runSourceImport({index,candidate,sourceId,session,fromUSB=false}){
   if(importing||!library)return;
-  const progress=message=>{const target=$(fromUSB?'#usb-progress':'#source-progress');if(target)target.textContent=message;$('#library-status').textContent=message;};
+  let lastProgress=0,lastPhase='';
+  const progress=(message,detail={phase:'database'})=>{
+    const now=performance.now();
+    if(detail.phase===lastPhase&&now-lastProgress<100)return;
+    lastProgress=now;lastPhase=detail.phase;
+    const target=$(fromUSB?'#usb-progress':'#source-progress');if(target)target.textContent=message;$('#library-status').textContent=message;renderImportProgress(detail);
+  };
   if(session){nativeUSBSession=session;usbOperation='read';}
   setImporting(true);sourceController=new AbortController();$('#cancel-source-import').hidden=false;
+  progress('ライブラリの読み込みを開始しています…',{phase:'database'});
   let lastRender=0,sourcePositions=new Map();
   try{
     if(session){
@@ -837,18 +870,18 @@ async function runSourceImport({index,candidate,sourceId,session,fromUSB=false})
     }
     sourceReader=createLibraryReader();
     const options={library,index,candidate,sources,sourceId,session:session?{...session,candidate}:undefined,reader:sourceReader,signal:sourceController.signal,
-      saveTrack:(track,blob,base,{signal})=>trackQueue.run(track.id,async()=>{signal?.throwIfAborted();const current=tracks[sourcePositions.get(track.id)];if(!current)throw new Error('この曲は削除されています。');const next={...track};if(base)for(const field of ['title','artist','bpm','cue','hotcues','tempos','positionMarks','beatOffset'])if(JSON.stringify(current[field])!==JSON.stringify(base[field]))next[field]=current[field];await library.putTrack(next,blob,{signal});return next;}),
+      saveTrack:(track,blob,base,{signal,onProgress})=>trackQueue.run(track.id,async()=>{signal?.throwIfAborted();const current=tracks[sourcePositions.get(track.id)];if(!current)throw new Error('この曲は削除されています。');const next={...track};if(base)for(const field of ['title','artist','bpm','cue','hotcues','tempos','positionMarks','beatOffset'])if(JSON.stringify(current[field])!==JSON.stringify(base[field]))next[field]=current[field];await library.putTrack(next,blob,{signal,onProgress});return next;}),
       onProgress:progress,
       onMetadata:async()=>{[tracks,playlists]=await Promise.all([library.getTracks(),library.getPlaylists()]);sourcePositions=new Map(tracks.map((track,index)=>[track.id,index]));setView('library');renderLibrary();},
       onTrack:track=>{const i=sourcePositions.get(track.id);if(i!==undefined)tracks[i]=track;else{sourcePositions.set(track.id,tracks.length);tracks.push(track);}if(performance.now()-lastRender>250){renderLibrary();lastRender=performance.now();}}};
     const result=await(session?importNativeUSB(options):cacheSourceLibrary(options));
     if((session||isDeviceLibrarySource(result.source))&&result.source?.id){activeSource=result.source.id;activePlaylist='all';libraryPage=0;$('#search').value='';}
     const message=`${result.addedTracks}曲を追加。音源${result.copied}曲を保存、${result.reused}曲はキャッシュを利用。${result.missing?`音源未接続 ${result.missing}曲。`:''}${result.metadataCached?' DBの解析結果もキャッシュから読み込みました。':''}`;
-    progress(message+(result.warnings.length?`\n${result.warnings.slice(0,3).join('\n')}${result.warnings.length>3?`\nほか${result.warnings.length-3}件`:''}`:''));toast(library.persistent?'ライブラリを保存しました。次回は端末内のキャッシュから開きます。':'この画面を開いている間だけ保持します。端末の保存領域を利用できません。');
+    progress(message+(result.warnings.length?`\n${result.warnings.slice(0,3).join('\n')}${result.warnings.length>3?`\nほか${result.warnings.length-3}件`:''}`:''),{phase:'done'});toast(library.persistent?'ライブラリを保存しました。次回は端末内のキャッシュから開きます。':'この画面を開いている間だけ保持します。端末の保存領域を利用できません。');
     // Request persistence only after the user explicitly imported files. Denial leaves normal caching intact.
     navigator.storage?.persist?.().catch(()=>{});
     return result;
-  }catch(error){const message=sourceController.signal.aborted?'読み込みを中止しました。保存済みの曲はそのまま使えます。':error.message;progress(message);if(!sourceController.signal.aborted)report(error);}
+  }catch(error){const message=sourceController.signal.aborted?'読み込みを中止しました。保存済みの曲はそのまま使えます。':error.message;progress(message,{phase:sourceController.signal.aborted?'cancelled':'error'});if(!sourceController.signal.aborted)report(error);}
   finally{sourceReader?.close();sourceReader=null;sourceController=null;usbOperation=null;$('#cancel-source-import').hidden=true;try{[tracks,playlists,sources]=await Promise.all([library.getTracks(),library.getPlaylists(),library.getSources()]);renderSources();renderLibrary();await storageInfo();}finally{setImporting(false);}}
 }
 
@@ -1028,7 +1061,7 @@ function events(){
   $('#choose-source-files').onclick=()=>$('#source-files').click();
   for(const id of ['source-folder','source-files'])$(`#${id}`).onchange=event=>{try{selectSourceIndex(indexFileList(event.target.files));}catch(error){$('#source-progress').textContent=error.message;report(error);}};
   $('#start-source-import').onclick=()=>importSource().catch(report);
-  $('#cancel-source-import').onclick=()=>{sourceController?.abort();sourceReader?.close();};
+  for(const id of ['cancel-source-import','library-load-cancel'])$(`#${id}`).onclick=()=>{sourceController?.abort();sourceReader?.close();};
   $('#previous-page').onclick=()=>{libraryPage=Math.max(0,libraryPage-1);renderLibrary();};
   $('#next-page').onclick=()=>{libraryPage++;renderLibrary();};
   $('#audio-files').addEventListener('change',e=>importFiles([...e.target.files]).catch(report));

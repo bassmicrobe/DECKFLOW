@@ -106,6 +106,85 @@ test('source import persists preparation and encoded audio without decoding, and
   assert.equal((await library.getTracks())[0].title,'Local edit');assert.equal((await library.getTracks())[0].cue,.75);
 });
 
+test('source progress advances only after audio commit and stays indeterminate while finalizing the source',async()=>{
+  const library=await openLibrary(),events=[];
+  let releaseAudio,notifyAudio,releaseSource,notifySource;
+  const audioWaiting=new Promise(resolve=>{notifyAudio=resolve;});
+  const sourceWaiting=new Promise(resolve=>{notifySource=resolve;});
+  const putTrack=library.putTrack.bind(library),putSource=library.putSource.bind(library);
+  library.putTrack=async(track,blob,options)=>{
+    if(blob){
+      options.onProgress({completed:0,total:blob.size});
+      options.onProgress({completed:blob.size,total:blob.size});
+      await new Promise(resolve=>{releaseAudio=resolve;notifyAudio();});
+    }
+    return putTrack(track,blob,options);
+  };
+  library.putSource=async source=>{
+    await new Promise(resolve=>{releaseSource=resolve;notifySource();});
+    return putSource(source);
+  };
+  let settled=false;
+  const importing=cacheSourceLibrary({library,...setup({analysis:false}),onProgress:(message,detail)=>events.push({message,...detail})});
+  importing.then(()=>{settled=true;});
+  await audioWaiting;
+  assert.deepEqual(events.slice(0,2).map(event=>event.phase),['database','metadata']);
+  assert.ok(events.every(event=>typeof event.message==='string'));
+  assert.ok(events.filter(event=>event.phase==='audio').every(event=>event.completed===0&&event.total===1));
+  assert.equal(events.at(-1).bytesCompleted,882044);assert.equal(events.at(-1).bytesTotal,882044);
+  assert.equal(settled,false);
+  releaseAudio();await sourceWaiting;
+  assert.equal(events.filter(event=>event.phase==='audio').at(-1).completed,1);
+  assert.equal(events.at(-1).phase,'saving');
+  assert.equal(events.at(-1).completed,undefined);assert.equal(events.at(-1).total,undefined);
+  assert.equal(settled,false);
+  releaseSource();await importing;
+  assert.equal(settled,true);
+});
+
+test('structured progress counts cached and missing entries that skip audio copying',async()=>{
+  const library=await openLibrary(),s=await aliasSetup({separateAudio:true});
+  await cacheSourceLibrary({library,...s});
+  for(const missing of [false,true]){
+    const events=[],target=missing?await openLibrary():library;
+    const index=missing?createSourceIndex([...s.index.entries.values()].filter(item=>item.path.endsWith('.pdb'))):s.index;
+    const result=await cacheSourceLibrary({library:target,...s,index,sources:await target.getSources(),onProgress:(_message,detail)=>events.push(detail)});
+    assert.equal(result[missing?'missing':'reused'],2);
+    assert.deepEqual(events.filter(event=>event.phase==='audio').map(event=>event.completed),[0,0,1,1,2]);
+    assert.ok(events.filter(event=>event.phase==='audio').every(event=>event.total===2));
+    assert.equal(events.at(-1).phase,'saving');
+  }
+});
+
+test('cancelled audio persistence forwards progress through saveTrack without completing its entry',async()=>{
+  const library=await openLibrary(),controller=new AbortController(),events=[];
+  await assert.rejects(cacheSourceLibrary({library,...setup({analysis:false}),signal:controller.signal,
+    onProgress:(_message,detail)=>events.push(detail),
+    saveTrack:async(_next,blob,_base,options)=>{
+      assert.ok(blob);assert.equal(options.signal,controller.signal);
+      options.onProgress({completed:42,total:blob.size});
+      controller.abort();options.signal.throwIfAborted();
+    }}),{name:'AbortError'});
+  const audio=events.filter(event=>event.phase==='audio');
+  assert.ok(audio.every(event=>event.completed===0));
+  assert.equal(audio.at(-1).bytesCompleted,42);
+  assert.equal(events.at(-1).phase,'saving');
+  assert.equal((await library.getTracks())[0].audioMissing,true);
+});
+
+test('missing-entry processing yields so cancellation stops before a false completed count',async()=>{
+  const library=await openLibrary(),controller=new AbortController(),events=[],s=setup({audio:false,analysis:false});
+  const entries=Array.from({length:12},(_,i)=>({...entry,trackId:`progress-${i}`,sourcePath:`/Contents/${i}.wav`,analysisPath:null}));
+  const tracks=entries.map(item=>({...metadata.tracks[0],id:item.trackId}));
+  const reader={async read(){return {tracks,entries,playlists:[],warnings:[]};}};
+  await assert.rejects(cacheSourceLibrary({library,...s,reader,signal:controller.signal,
+    onMetadata:()=>{setTimeout(()=>controller.abort(),0);},
+    onProgress:(_message,detail)=>events.push(detail)}),{name:'AbortError'});
+  const audio=events.filter(event=>event.phase==='audio');
+  assert.equal(audio.at(-1).completed,10);assert.equal(audio.at(-1).total,12);
+  assert.ok(audio.every(event=>event.completed<event.total));
+});
+
 test('missing audio remains a metadata placeholder and can be connected on a later folder selection',async()=>{
   const library=await openLibrary(),s=setup({audio:false});
   const first=await cacheSourceLibrary({library,...s});assert.equal(first.missing,1);assert.equal((await library.getTracks())[0].audioMissing,true);

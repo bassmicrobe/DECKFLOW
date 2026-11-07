@@ -90,19 +90,31 @@ async function cleanupStaging(transaction) {
   });
 }
 
-async function copyAndCommit(blob, transaction, commit, {signal, lockProtected}) {
+function notifyProgress(onProgress, completed, total) {
+  // Progress observes committed staging bytes; an observer must never decide
+  // whether a copy commits or prevent failed-copy cleanup.
+  try {
+    const pending = onProgress?.({completed, total});
+    if (pending?.then) Promise.resolve(pending).catch(() => {});
+  } catch {}
+}
+
+async function copyAndCommit(blob, transaction, commit, {signal, lockProtected, onProgress}) {
   checkAbort(signal);
   const token = crypto.randomUUID();
   const stageKey = STAGING + token;
   const audio = {format: FORMAT, version: 1, prefix: `@audio/${token}/`,
     chunkSize: AUDIO_CHUNK_BYTES, count: Math.ceil(blob.size / AUDIO_CHUNK_BYTES), size: blob.size, type: blob.type};
   validateAudioDescriptor(audio);
+  notifyProgress(onProgress, 0, audio.size);
+  checkAbort(signal);
   await transaction(['audio'], 'readwrite', tx => tx.objectStore('audio').put({audio, lockProtected}, stageKey));
   try {
     for (let index = 0; index < audio.count; index++) {
       // Read the next chunk only after the preceding transaction committed.
       const chunk = await ownedChunk(blob, index * AUDIO_CHUNK_BYTES, signal);
       await transaction(['audio'], 'readwrite', tx => tx.objectStore('audio').put(chunk, `${audio.prefix}${index}`));
+      notifyProgress(onProgress, Math.min((index + 1) * AUDIO_CHUNK_BYTES, audio.size), audio.size);
     }
     checkAbort(signal);
     return await commit(audio, stageKey);
@@ -125,9 +137,9 @@ async function copyAndCommit(blob, transaction, commit, {signal, lockProtected})
  * collection across tabs; the exclusive, non-waiting cleanup runs before a new
  * copy. Without Web Locks, failures still clean their own UUID but crash
  * journals are conservatively retained rather than deleting another tab's data. */
-export async function withOwnedAudio(blob, transaction, commit, {signal, databaseName} = {}) {
+export async function withOwnedAudio(blob, transaction, commit, {signal, databaseName, onProgress} = {}) {
   const locks = globalThis.navigator?.locks;
-  const copy = lockProtected => copyAndCommit(blob, transaction, commit, {signal, lockProtected});
+  const copy = lockProtected => copyAndCommit(blob, transaction, commit, {signal, lockProtected, onProgress});
   if (!locks?.request) return copy(false);
   const name = `deckflow.audio-copy/${databaseName}`;
   await locks.request(name, {mode: 'exclusive', ifAvailable: true}, lock => lock ? cleanupStaging(transaction) : undefined);

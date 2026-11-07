@@ -1,5 +1,5 @@
-import {databaseBytes, sourceDigest, sourceFileStamp, normalizeSourcePath} from './library-source.js?v=7c8bf604d2c9c1e4';
-import {isAudioFile} from './file-drop.js?v=7c8bf604d2c9c1e4';
+import {databaseBytes, sourceDigest, sourceFileStamp, normalizeSourcePath} from './library-source.js?v=61851a879bde64c2';
+import {isAudioFile} from './file-drop.js?v=61851a879bde64c2';
 const pause = () => new Promise(resolve=>setTimeout(resolve,0));
 const preparation = track => JSON.stringify({bpm:track.bpm,beatOffset:track.beatOffset||0,cue:track.cue||0,
   hotcues:track.hotcues??Array(8).fill(null),tempos:track.tempos??[],positionMarks:track.positionMarks??[]});
@@ -36,7 +36,7 @@ function sourceBindings(index,entries,signal){
 }
 /** Additive, read-only import. Metadata opens first; audio is copied encoded, never decoded here. */
 export async function cacheSourceLibrary({library,index,candidate,sources=[],sourceId,reader,signal,saveTrack,transformParsed,sourceExtras={},onProgress=()=>{},onTrack=()=>{},onMetadata=()=>{}}) {
-  signal?.throwIfAborted(); onProgress('データベースを確認しています…');
+  signal?.throwIfAborted(); onProgress('データベースを確認しています…',{phase:'database'});
   const bytes=await databaseBytes(index,candidate), digest=await sourceDigest(bytes);
   signal?.throwIfAborted();
   let previous=sourceId?sources.find(source=>source.id===sourceId):sources.find(source=>source.digest===digest && source.databasePath===candidate.path);
@@ -45,6 +45,7 @@ export async function cacheSourceLibrary({library,index,candidate,sources=[],sou
   const cached=previous?.cacheVersion===2 && previous?.digest===digest && previous?.parsed;
   let parsed=cached?previous.parsed:await reader.read('database',{kind:candidate.kind,bytes,sourceId:id,databaseKind:candidate.kind==='sqlite'?(candidate.path.toLowerCase().endsWith('/master.db')||candidate.path.toLowerCase()==='master.db'?'master':'device'):undefined},[bytes.buffer]);
   if (transformParsed) parsed=await transformParsed(structuredClone(parsed),{sourceId:id});
+  onProgress('曲情報・プレイリストを読み込んでいます…',{phase:'metadata'});
   const incomingById=new Map(parsed.tracks.map(track=>[track.id,track]));
   signal?.throwIfAborted();
   const bindings=sourceBindings(index,parsed.entries,signal);
@@ -53,9 +54,9 @@ export async function cacheSourceLibrary({library,index,candidate,sources=[],sou
   for(const track of parsed.tracks)if(!baseline.has(track.id))baseline.set(track.id,track);
   // The app serializes this callback with edits and returns the actual stored
   // record. null means the track was deleted meanwhile; never resurrect it.
-  const persist=async(next,blob,base)=>{
+  const persist=async(next,blob,base,onAudioProgress)=>{
     signal?.throwIfAborted();
-    const stored=saveTrack?await saveTrack(next,blob,base,{signal}):(await library.putTrack(next,blob,{signal}),next);
+    const stored=saveTrack?await saveTrack(next,blob,base,{signal,onProgress:onAudioProgress}):(await library.putTrack(next,blob,{signal,onProgress:onAudioProgress}),next);
     if(stored===null){existing.delete(next.id);return null;}
     const result=stored??next;existing.set(result.id,result);onTrack(result);return result;
   };
@@ -71,73 +72,91 @@ export async function cacheSourceLibrary({library,index,candidate,sources=[],sou
   try {
     await onMetadata();
     let count=0;
+    onProgress(`音源をキャッシュ ${count} / ${parsed.entries.length}`,{phase:'audio',completed:count,total:parsed.entries.length});
     for (const entry of parsed.entries) {
       signal?.throwIfAborted();
-      let track=existing.get(entry.trackId); if (!track) continue;
-      // Upgrade older caches with source metadata that previous app versions
-      // did not store. Reading/caching never stamps a local modification date.
-      const incoming=incomingById.get(track.id),details={};
-      for(const field of ['album','genre','key','label','composer','remixer','mix','comments','fileType','rating','bitRate','sampleRate','bitDepth','year','trackNumber','discNumber','playCount','dateAdded','dateCreated']) {
-        if((track[field]===undefined||track[field]==='')&&incoming?.[field]!==undefined&&incoming[field]!==track[field])details[field]=incoming[field];
-      }
-      if(incoming?.dateModified&&incoming.dateModified!==track.dateModified)details.dateModified=incoming.dateModified;
-      if(Object.keys(details).length){track=await persist({...track,...details},undefined,track);if(!track)continue;}
-      onProgress(`音源をキャッシュ ${++count} / ${parsed.entries.length} — ${track.title}`);
-      const binding=bindings.get(entry.trackId),availableAnalysis=binding.analyses;
-      if(binding.audioAmbiguous)result.warnings.push(`${track.title}: 異なる元音源のパスが同じ選択ファイルに対応するため、自動接続しませんでした。元のフォルダ構成で選び直してください。`);
-      if(binding.analysisAmbiguous)result.warnings.push(`${track.title}: 異なる元音源・解析パスが同じANLZファイルに対応するため、その解析情報を取り込みませんでした。`);
-      const previousExtensions=source.analysisExtensions[track.id]??[];
-      const newAnalysis=availableAnalysis.some(({extension})=>!previousExtensions.includes(extension));
-      // Resume placeholders committed before a cancelled first import. Adopt
-      // preparation only while unchanged from its original DB snapshot; local
-      // cue/grid edits survive even when preview peaks are still missing.
-      if (entry.analysisPath && (!track.peaks?.length || newAnalysis)) {
-        const files=[];
-        try {
-          for (const {item} of availableAnalysis) {
-            const file=await item.getFile();if(file.size>32*1024*1024) throw new Error('解析ファイルは32 MB以内で選んでください。');
-            signal?.throwIfAborted();
-            files.push(new Uint8Array(await file.arrayBuffer()));
-            signal?.throwIfAborted();
-          }
-          if (!files.length&&!binding.analysisAmbiguous) result.warnings.push(`${track.title}: 解析ファイルが未選択のため、既存波形とビートグリッドを引き継いでいません。`);
-          if (files.length) {
-            const enriched=await reader.read('analysis',{track,files,preserveCues:parsed.sourceFormat==='master'},files.map(file=>file.buffer));
-            signal?.throwIfAborted();
-            const priorHash=source.preparationHashes[track.id],currentPreparation=preparation(track);
-            const unchanged=priorHash?await sourceDigest(new TextEncoder().encode(currentPreparation))===priorHash:currentPreparation===preparation(baseline.get(track.id));
-            const next=unchanged?{...enriched,title:track.title,artist:track.artist}:{...track,peaks:enriched.peaks};
-            track=await persist(next,undefined,track);
-            if(!track)continue;
-            source.analysisExtensions[track.id]=availableAnalysis.map(({extension})=>extension);
-            if(unchanged)source.preparationHashes[track.id]=await sourceDigest(new TextEncoder().encode(preparation(enriched)));
-            if(!source.analysisExtensions[track.id].includes('EXT'))result.warnings.push(`${track.title}: EXT解析ファイルがないため、DATに含まれる波形・CUEだけを引き継ぎました。`);
-          }
-        } catch (error) { if(signal?.aborted||error.cause?.name==='QuotaExceededError'||/保存容量/.test(error.message)) throw error;result.warnings.push(`${track.title}: 既存波形を読めませんでした（${error.message}）。`); }
-      }
-      const item=binding.audio;
-      if (!item) { if(track.audioMissing) result.missing++;else result.reused++;continue; }
+      const title=existing.get(entry.trackId)?.title||incomingById.get(entry.trackId)?.title;
+      onProgress(`音源をキャッシュ ${count} / ${parsed.entries.length}${title?` — ${title}`:''}`,{phase:'audio',completed:count,total:parsed.entries.length,title});
+      let failed=false;
       try {
-        const file=await item.getFile();signal?.throwIfAborted();
-        const stamp=sourceFileStamp(file,item.path);
-        if (!track.audioMissing) {
-          result.reused++;
-          if (source.audioStamps[track.id] && source.audioStamps[track.id]!==stamp) result.warnings.push(`${track.title}: 元の音源に変更があります。保存済み音源を保持しました。元音源の変更は自動反映しません。`);
-          continue;
+        let track=existing.get(entry.trackId); if (!track) continue;
+        // Upgrade older caches with source metadata that previous app versions
+        // did not store. Reading/caching never stamps a local modification date.
+        const incoming=incomingById.get(track.id),details={};
+        for(const field of ['album','genre','key','label','composer','remixer','mix','comments','fileType','rating','bitRate','sampleRate','bitDepth','year','trackNumber','discNumber','playCount','dateAdded','dateCreated']) {
+          if((track[field]===undefined||track[field]==='')&&incoming?.[field]!==undefined&&incoming[field]!==track[field])details[field]=incoming[field];
         }
-        if (!isAudioFile(file) || !Number.isSafeInteger(file.size) || file.size <= 0) throw new Error('空でない音源ファイルを選んでください。');
-        if (track.rekordbox?.size && track.rekordbox.size!==file.size) throw new Error('データベースと音源のサイズが異なります。元の音源を確認してください。');
-        track=await persist({...track,audioMissing:false,fingerprint:`${file.name}|${file.size}|${file.lastModified||0}`},file,track);
-        if(!track)continue;
-        source.audioStamps[track.id]=stamp;result.copied++;
-      } catch(error) {
-        if (signal?.aborted || error.cause?.name==='QuotaExceededError' || /保存容量/.test(error.message)) throw error;
-        result.missing++;result.warnings.push(`${track.title}: ${error.message}`);
+        if(incoming?.dateModified&&incoming.dateModified!==track.dateModified)details.dateModified=incoming.dateModified;
+        if(Object.keys(details).length){track=await persist({...track,...details},undefined,track);if(!track)continue;}
+        const binding=bindings.get(entry.trackId),availableAnalysis=binding.analyses;
+        if(binding.audioAmbiguous)result.warnings.push(`${track.title}: 異なる元音源のパスが同じ選択ファイルに対応するため、自動接続しませんでした。元のフォルダ構成で選び直してください。`);
+        if(binding.analysisAmbiguous)result.warnings.push(`${track.title}: 異なる元音源・解析パスが同じANLZファイルに対応するため、その解析情報を取り込みませんでした。`);
+        const previousExtensions=source.analysisExtensions[track.id]??[];
+        const newAnalysis=availableAnalysis.some(({extension})=>!previousExtensions.includes(extension));
+        // Resume placeholders committed before a cancelled first import. Adopt
+        // preparation only while unchanged from its original DB snapshot; local
+        // cue/grid edits survive even when preview peaks are still missing.
+        if (entry.analysisPath && (!track.peaks?.length || newAnalysis)) {
+          const files=[];
+          try {
+            for (const {item} of availableAnalysis) {
+              const file=await item.getFile();if(file.size>32*1024*1024) throw new Error('解析ファイルは32 MB以内で選んでください。');
+              signal?.throwIfAborted();
+              files.push(new Uint8Array(await file.arrayBuffer()));
+              signal?.throwIfAborted();
+            }
+            if (!files.length&&!binding.analysisAmbiguous) result.warnings.push(`${track.title}: 解析ファイルが未選択のため、既存波形とビートグリッドを引き継いでいません。`);
+            if (files.length) {
+              const enriched=await reader.read('analysis',{track,files,preserveCues:parsed.sourceFormat==='master'},files.map(file=>file.buffer));
+              signal?.throwIfAborted();
+              const priorHash=source.preparationHashes[track.id],currentPreparation=preparation(track);
+              const unchanged=priorHash?await sourceDigest(new TextEncoder().encode(currentPreparation))===priorHash:currentPreparation===preparation(baseline.get(track.id));
+              const next=unchanged?{...enriched,title:track.title,artist:track.artist}:{...track,peaks:enriched.peaks};
+              track=await persist(next,undefined,track);
+              if(!track)continue;
+              source.analysisExtensions[track.id]=availableAnalysis.map(({extension})=>extension);
+              if(unchanged)source.preparationHashes[track.id]=await sourceDigest(new TextEncoder().encode(preparation(enriched)));
+              if(!source.analysisExtensions[track.id].includes('EXT'))result.warnings.push(`${track.title}: EXT解析ファイルがないため、DATに含まれる波形・CUEだけを引き継ぎました。`);
+            }
+          } catch (error) { if(signal?.aborted||error.cause?.name==='QuotaExceededError'||/保存容量/.test(error.message)) throw error;result.warnings.push(`${track.title}: 既存波形を読めませんでした（${error.message}）。`); }
+        }
+        const item=binding.audio;
+        if (!item) { if(track.audioMissing) result.missing++;else result.reused++;continue; }
+        try {
+          const file=await item.getFile();signal?.throwIfAborted();
+          const stamp=sourceFileStamp(file,item.path);
+          if (!track.audioMissing) {
+            result.reused++;
+            if (source.audioStamps[track.id] && source.audioStamps[track.id]!==stamp) result.warnings.push(`${track.title}: 元の音源に変更があります。保存済み音源を保持しました。元音源の変更は自動反映しません。`);
+            continue;
+          }
+          if (!isAudioFile(file) || !Number.isSafeInteger(file.size) || file.size <= 0) throw new Error('空でない音源ファイルを選んでください。');
+          if (track.rekordbox?.size && track.rekordbox.size!==file.size) throw new Error('データベースと音源のサイズが異なります。元の音源を確認してください。');
+          track=await persist({...track,audioMissing:false,fingerprint:`${file.name}|${file.size}|${file.lastModified||0}`},file,track,({completed,total})=>{
+            onProgress(`音源をキャッシュ ${count} / ${parsed.entries.length} — ${track.title}`,
+              {phase:'audio',completed:count,total:parsed.entries.length,title:track.title,bytesCompleted:completed,bytesTotal:total});
+          });
+          if(!track)continue;
+          source.audioStamps[track.id]=stamp;result.copied++;
+        } catch(error) {
+          if (signal?.aborted || error.cause?.name==='QuotaExceededError' || /保存容量/.test(error.message)) throw error;
+          result.missing++;result.warnings.push(`${track.title}: ${error.message}`);
+        }
+      } catch(error) { failed=true;throw error; }
+      finally {
+        // Every resolved entry counts, including cached/missing/deleted ones.
+        // Never advance for an interrupted save, and yield on fast skip paths too.
+        if(!failed&&!signal?.aborted){
+          count++;
+          onProgress(`音源をキャッシュ ${count} / ${parsed.entries.length}`,{phase:'audio',completed:count,total:parsed.entries.length});
+          if(count%10===0)await pause();
+        }
       }
-      if (count%10===0) await pause();
     }
+    signal?.throwIfAborted();
     return {...result,source};
   } finally {
+    onProgress('読み込み結果を端末内に保存しています…',{phase:'saving'});
     source.cachedAudio=source.trackIds.filter(id=>existing.get(id)?.audioMissing===false).length;
     source.updatedAt=Date.now();await library.putSource(source);
   }

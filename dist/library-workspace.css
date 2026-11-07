@@ -238,3 +238,13 @@ body:has(.tab[data-view=library].active) #library-section {height:calc(100dvh - 
 .usb-folder-guide strong { color: var(--text, #ededf0); font-size: 13px; }
 .usb-folder-guide pre { white-space: pre-wrap; margin: 10px 0; font-size: 12px; line-height: 1.6; }
 .usb-folder-guide p { font-size: 12px; line-height: 1.7; margin: 0; color: var(--muted, #a8a8b0); }
+
+.import-progress { flex: none; min-width: 0; margin: 12px 0; padding: 12px; border: 1px solid var(--line, #303036); background: #101014; }
+.import-progress-heading { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; }
+.import-progress-heading [data-import-count] { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--muted, #a8a8b0); }
+.import-progress-heading .text-button { min-height: 36px; padding: 4px 10px; }
+.import-progress progress { display: block; width: 100%; height: 6px; margin-top: 10px; border: 0; border-radius: 0; accent-color: var(--brand, #e24b55); background: #29292e; }
+.import-progress progress::-webkit-progress-bar { background: #29292e; border-radius: 0; }
+.import-progress progress::-webkit-progress-value { background: var(--brand, #e24b55); border-radius: 0; }
+.import-progress progress::-moz-progress-bar { background: var(--brand, #e24b55); border-radius: 0; }
+.import-progress-current { display: block; margin-top: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--muted, #a8a8b0); }

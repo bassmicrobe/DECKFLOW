@@ -5,7 +5,7 @@
  * Licensed under the Mozilla Public License, v. 2.0.
  * You can obtain one at https://mozilla.org/MPL/2.0/.
  */
-import { DEFAULT_SAMPLE_BUFFER_TYPE, PROCESSOR_NAME } from './constants.js?v=7c8bf604d2c9c1e4';
+import { DEFAULT_SAMPLE_BUFFER_TYPE, PROCESSOR_NAME } from './constants.js?v=61851a879bde64c2';
 /**
  * Main-thread AudioWorkletNode wrapper for SoundTouch audio processing.
  *

@@ -1,4 +1,4 @@
-import {trackDateValue, trackFileType} from './track-metadata.js?v=7c8bf604d2c9c1e4';
+import {trackDateValue, trackFileType} from './track-metadata.js?v=61851a879bde64c2';
 const textFields = new Set(['title','artist','album','genre','key','comments','fileType','fileName','label','composer','remixer']);
 const fields = new Set(['added', ...textFields, 'bpm', 'duration', 'rating', 'dateAdded', 'dateModified', 'bitRate', 'sampleRate', 'bitDepth', 'year', 'playCount']);
 const collator = new Intl.Collator('ja', {numeric: true, sensitivity: 'base'});

@@ -1,7 +1,7 @@
-import {normalizeRekordboxMetadata, normalizeFolderPath, parseRekordboxLocation} from './rekordbox-model.js?v=7c8bf604d2c9c1e4';
-import {withOwnedAudio, readStoredAudio, deleteAudioChunks} from './audio-chunk-store.js?v=7c8bf604d2c9c1e4';
-import {isAudioReadSource, ownAudioReadSource} from './audio-read-source.js?v=7c8bf604d2c9c1e4';
-import {normalizeTrackMetadata} from './track-metadata.js?v=7c8bf604d2c9c1e4';
+import {normalizeRekordboxMetadata, normalizeFolderPath, parseRekordboxLocation} from './rekordbox-model.js?v=61851a879bde64c2';
+import {withOwnedAudio, readStoredAudio, deleteAudioChunks} from './audio-chunk-store.js?v=61851a879bde64c2';
+import {isAudioReadSource, ownAudioReadSource} from './audio-read-source.js?v=61851a879bde64c2';
+import {normalizeTrackMetadata} from './track-metadata.js?v=61851a879bde64c2';
 /**
  * DECKFLOW local library. Metadata and encoded audio live in separate stores,
  * so listing a large library does not read every audio Blob into memory.
@@ -162,12 +162,12 @@ function mergeImport(existingTracks, existingPlaylists, incomingTracks, incoming
   for (const incoming of incomingPlaylists) {
     const binding=source?.nativeUSB?.playlists?.[incoming.id], current=playlistMap.get(incoming.id);
     if (!binding?.baseline || !current) continue;
-    const baseline=binding.baseline;
+    const baseline=binding.baseline,baselineTrackIds=new Set(baseline.trackIds);
     // Keep locally appended tracks while adopting the device's current list.
     playlistMap.set(incoming.id,{...incoming,
       name:current.name===baseline.name?incoming.name:current.name,
       folderPath:JSON.stringify(current.folderPath??[])===JSON.stringify(baseline.folderPath??[])?incoming.folderPath:current.folderPath,
-      trackIds:[...new Set([...incoming.trackIds,...current.trackIds.filter(id=>!baseline.trackIds.includes(id))])]});
+      trackIds:[...new Set([...incoming.trackIds,...current.trackIds.filter(id=>!baselineTrackIds.has(id))])]});
   }
   if (next.size > MAX_TRACKS) invalid(`曲は${MAX_TRACKS}件以内で指定してください。`);
   const playlists = normalizePlaylists([...playlistMap.values()], new Set(next.keys()));
@@ -405,7 +405,7 @@ class IndexedLibrary {
       };
     });
     return blob === undefined ? commit() : withOwnedAudio(blob, this._transaction.bind(this), commit,
-      {signal: options.signal, databaseName: this.database.name});
+      {signal: options.signal, databaseName: this.database.name, onProgress: options.onProgress});
   }
 
   async updateTrackDetails(id, fields, playlistId = null) {
